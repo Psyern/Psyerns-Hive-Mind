@@ -21,6 +21,7 @@ class CfgMods
 		name = "Psyerns Hive Mind";
 		credits = "";
 		version = "1.0.0";
+		inputs = "Psyerns_Hive_Mind_V1/scripts/data/Inputs.xml";
 		author = "Psyern";
 		extra = 0;
 		type = "mod";

@@ -1,8 +1,8 @@
 //! Client entry point for the admin debug map.
 //!
-//! Registers a bindable input so the key is chosen in the DayZ controls menu
-//! instead of being hardcoded (Input.RegisterInput, UAInput.c:191), and receives
-//! the snapshot RPC through DayZGame.Event_OnRPC (DayZGame.c:970/:3089).
+//! Resolves the bindable input declared in scripts/data/Inputs.xml so the key can
+//! be rebound in the DayZ controls menu, and receives the snapshot RPC through
+//! DayZGame.Event_OnRPC (DayZGame.c:970/:3089).
 //!
 //! Nothing here grants any authority: the server decides who is an admin and
 //! simply never sends snapshots to anyone else.
@@ -11,6 +11,7 @@ modded class MissionGameplay
 	protected UAInput m_PHM_MapInput;
 	protected ref PHM_HiveMapMenu m_PHM_MapMenu;
 	protected bool m_PHM_Registered;
+	protected bool m_PHM_ResolveLogged;
 
 	void MissionGameplay()
 	{
@@ -36,24 +37,37 @@ modded class MissionGameplay
 	{
 		super.OnInit();
 
-		PHM_RegisterInput();
+		PHM_ResolveInput();
 	}
 
-	protected void PHM_RegisterInput()
+	//! Resolves the input that scripts/data/Inputs.xml declared and config.cpp
+	//! registered through the CfgMods "inputs" property. The engine has already
+	//! created it by the time OnInit runs; script only looks it up.
+	protected void PHM_ResolveInput()
 	{
 		if (m_PHM_Registered)
 			return;
 
-		//! RegisterGroup/RegisterInput live on UAInputAPI (UAInput.c:165/:191),
-		//! not on Input - GetUApi() is the accessor (UAInput.c:239).
 		UAInputAPI api = GetUApi();
 		if (!api)
 			return;
 
-		api.RegisterGroup(PHM_Constants.INPUT_GROUP, "Psyerns Hive Mind");
-		m_PHM_MapInput = api.RegisterInput(PHM_Constants.INPUT_MAP, "Hive Debug Map", PHM_Constants.INPUT_GROUP);
+		m_PHM_MapInput = api.GetInputByName(PHM_Constants.INPUT_MAP);
+		if (!m_PHM_MapInput)
+		{
+			//! Logged once, then retried silently from OnUpdate, so an unexpected
+			//! init ordering cannot leave the key dead for the whole session.
+			if (!m_PHM_ResolveLogged)
+			{
+				m_PHM_ResolveLogged = true;
+				PHM_Logger.Error("Input " + PHM_Constants.INPUT_MAP + " not found. Is scripts/data/Inputs.xml packed into the PBO and referenced by config.cpp?");
+			}
+
+			return;
+		}
 
 		m_PHM_Registered = true;
+		PHM_Logger.Notice("Hive debug map input ready: " + PHM_Constants.INPUT_MAP);
 	}
 
 	void PHM_OnRPC(PlayerIdentity sender, Object target, int rpc_type, ParamsReadContext ctx)
@@ -67,6 +81,12 @@ modded class MissionGameplay
 	override void OnUpdate(float timeslice)
 	{
 		super.OnUpdate(timeslice);
+
+		if (!m_PHM_Registered)
+		{
+			PHM_ResolveInput();
+			return;
+		}
 
 		if (!m_PHM_MapInput)
 			return;

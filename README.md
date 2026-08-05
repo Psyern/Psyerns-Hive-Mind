@@ -33,9 +33,11 @@ This repository is the DayZ mod itself &mdash; no companion services, no externa
 
 ```text
 Psyerns_Hive_Mind_V1/               ← DayZ mod (this README)
-├── config.cpp                      ← CfgPatches / CfgMods, three script modules
+├── config.cpp                      ← CfgPatches / CfgMods, script modules, inputs
+├── stringtable.csv                 ← keybind labels
 ├── gui/layouts/                    ← admin debug map layouts
 └── scripts/
+    ├── data/Inputs.xml             ← debug map keybind (default F10)
     ├── 3_Game/                     ← settings, constants, enums, RPC ids, DTOs
     ├── 4_World/                    ← hive core, infected registry, engine hook
     └── 5_Mission/                  ← server entry, client entry, map menu
@@ -128,11 +130,14 @@ One sighting must never cascade across the whole map. Four independent brakes wo
 ## Script Structure
 
 ```text
-config.cpp                          ← requiredVersion 0.1, requiredAddons DZ_Data
+config.cpp                          ← requiredVersion 0.1, requiredAddons DZ_Data,
+                                      inputs = scripts/data/Inputs.xml
+stringtable.csv                     ← STR_PHM_GROUP, STR_PHM_HIVE_MAP_TOGGLE
 gui/layouts/
 ├── phm_hive_map.layout             ← admin map screen
 └── phm_hive_line.layout            ← single pooled connection line
 scripts/
+├── data/Inputs.xml                 ← UAPHMHiveMapToggle, preset kF10
 ├── 3_Game/
 │   ├── PHM_Constants.c             ← paths, clamp bounds, colors, input names
 │   ├── PHM_Enums.c                 ← EPHM_TimeWindow, EPHM_TriggerLevel
@@ -334,8 +339,10 @@ Live in-game view of the hive: which infected are marked, who informed whom, and
    "DebugMapAdmins": ["76561198000000000"]
    ```
 2. Restart the server, or wait for `SettingsReloadSeconds`
-3. In game, bind a key under **Options &rarr; Controls &rarr; Psyerns Hive Mind &rarr; Hive Debug Map**. The mod does not hardcode a key
-4. Press it. ESC or the same key closes the map again
+3. Press **F10** in game. Rebind it under **Options &rarr; Controls &rarr; Psyerns Hive Mind &rarr; Hive Debug Map**
+4. ESC closes the map again
+
+> The key only opens the map. Whether it shows anything is decided entirely by the server: without `DebugMapEnabled` and a matching entry in `DebugMapAdmins`, the map stays on *"warte auf Server ..."* because no snapshot is ever sent.
 
 ### What you see
 
@@ -406,12 +413,16 @@ Findings from building this mod, verified against the DayZ 1.29 sources. They ar
 | `DayZInfectedConstants` shares its ordinal range with the `COMMANDID_*` entries, so `MINDSTATE_CALM` is 7 and `MINDSTATE_FIGHT` is 11 &mdash; but `ZombieBase.Init` registers `m_MindState` with `RegisterNetSyncVariableInt(-1, 4)` | The replicated mind state cannot carry the real value. `GetMindStateSynced()` is unusable; the mod reads the server-side value and compares only against named constants |
 | `EEDelete` is overridden by no vanilla or Expansion creature class, so it is unprovable from script whether the engine fires it for `DayZCreature` derivatives | Infected are unregistered through **three** redundant paths: destructor, `EEDelete`, plus null / `IsSetForDeletion` / `IsAlive` checks in every selection loop |
 | Expansion's `ModCommandHandlerBefore` returns `true` for lobotomised infected **without** calling `super` | Countdown timers in that hook would silently stall. The mod uses absolute timestamps instead and overrides the hook not at all |
+| `UAInputAPI.RegisterInput` / `RegisterGroup` are declared (`UAInput.c:191` / `:194`) but have **zero call sites** in vanilla 1.29 and zero in Expansion. Registering a keybind from script produces no usable input | Keybinds must be declared in an `Inputs.xml` referenced by the `inputs` property in `CfgMods` &mdash; the mechanism every Expansion module with a hotkey uses (`Book/Scripts/Data/Inputs.xml` + `Book/Scripts/config.cpp:20`). Script only resolves the input with `GetUApi().GetInputByName(...)` |
 
-### Known Limitations
+### Status
 
-- **No compiler was run.** Every API used was verified individually against the 1.29 sources, but the mod has not been compiled or run on a live server
-- **The line geometry on the debug map is unverified.** The code assumes `SetRotation` pivots around the widget centre. If lines appear offset in game, the pivot is the corner instead and only the placement in `DrawLine` needs to change
-- **`EEDelete` behaviour for infected should be tested once** &mdash; kill a zombie *and* wait out a CE despawn, with the triple unregister in place as the safety net
+**Verified on a live dedicated server** alongside CF, Community Online Tools and the full DayZ Expansion bundle: the mod compiles, loads its settings, and the hive core works &mdash; broadcasts fire on the mind state edge, the cap holds at exactly `MaxSharedZombies`, and relay hops reach depth 1 as configured.
+
+Still unverified:
+
+- **The line geometry on the debug map.** The code assumes `SetRotation` pivots around the widget centre. If lines appear offset in game, the pivot is the corner instead and only the placement in `DrawLine` needs to change
+- **`EEDelete` behaviour for infected** &mdash; kill a zombie *and* wait out a CE despawn, with the triple unregister in place as the safety net
 
 ---
 

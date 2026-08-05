@@ -82,10 +82,14 @@ class PHM_Constants
 	//! Caps RPT writes on a path any client can reach.
 	static const int DEBUG_WARN_IDS_MAX = 64;
 
-	//! Registered from script so the admin can bind a key in the DayZ controls
-	//! menu (Input.RegisterInput, UAInput.c:191).
-	static const string INPUT_GROUP = "PsyernsHiveMind";
-	static const string INPUT_MAP = "PHM_UAHiveMap";
+	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
+	//! through the CfgMods "inputs" property.
+	//!
+	//! Do NOT try to create this from script with UAInputAPI.RegisterInput: that
+	//! method is declared (UAInput.c:191) but has zero call sites in vanilla 1.29
+	//! and zero in DayZ Expansion. Every Expansion module with a keybind ships an
+	//! Inputs.xml instead (e.g. Book/Scripts/Data/Inputs.xml + config.cpp:20).
+	static const string INPUT_MAP = "UAPHMHiveMapToggle";
 
 	static const string LAYOUT_MAP = "Psyerns_Hive_Mind_V1/gui/layouts/phm_hive_map.layout";
 	static const string LAYOUT_LINE = "Psyerns_Hive_Mind_V1/gui/layouts/phm_hive_line.layout";
