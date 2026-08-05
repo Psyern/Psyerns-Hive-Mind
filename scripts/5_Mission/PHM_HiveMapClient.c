@@ -6,6 +6,7 @@ class PHM_HiveMapClient
 {
 	protected static PHM_HiveMapMenu s_PHM_Menu;
 	protected static bool s_PHM_Subscribed;
+	protected static bool s_PHM_SnapshotSeen;
 
 	static void SetMenu(PHM_HiveMapMenu menu)
 	{
@@ -43,6 +44,20 @@ class PHM_HiveMapClient
 
 		if (!data.param1)
 			return;
+
+		//! One line per session, so a silent transport failure is distinguishable
+		//! from a legitimately empty map in the client RPT.
+		if (!s_PHM_SnapshotSeen)
+		{
+			s_PHM_SnapshotSeen = true;
+			int nodeCount = 0;
+			int edgeCount = 0;
+			if (data.param1.nodes)
+				nodeCount = data.param1.nodes.Count();
+			if (data.param1.edges)
+				edgeCount = data.param1.edges.Count();
+			PHM_Logger.Notice("First debug snapshot received: nodes=" + nodeCount.ToString() + " edges=" + edgeCount.ToString() + " registry=" + data.param1.registrySize.ToString());
+		}
 
 		if (!s_PHM_Menu)
 			return;

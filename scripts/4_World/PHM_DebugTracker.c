@@ -1,8 +1,11 @@
 //! Server side collector for the admin debug map.
 //!
-//! Completely inert unless at least one whitelisted admin has an open map. The
-//! hive itself never calls into here without checking IsRecording() first, so a
-//! production server pays one bool read per broadcast and nothing else.
+//! Records whenever DebugMapEnabled is set - NOT only while a map is open.
+//! Field-tested reason: marks expire after BoostDurationSeconds, so by the time
+//! an admin opens the map after a fight the live state is empty; the recorded
+//! history is the only thing left to show. Recording is bounded (event history
+//! plus the per-snapshot edge cap), and on a production server with
+//! DebugMapEnabled=false the hive pays one settings read per broadcast.
 class PHM_DebugTracker
 {
 	protected static ref PHM_DebugTracker s_PHM_Instance;
@@ -32,13 +35,15 @@ class PHM_DebugTracker
 		return s_PHM_Instance;
 	}
 
-	//! Must not create the instance - this is the hot path guard.
+	//! Hot path guard, called once per broadcast. Driven by the setting, not by
+	//! open maps, so history exists BEFORE the admin looks at it.
 	static bool IsRecording()
 	{
-		if (!s_PHM_Instance)
+		PHM_Settings settings = PHM_SettingsHolder.Get();
+		if (!settings)
 			return false;
 
-		return s_PHM_Instance.HasSubscribers();
+		return settings.DebugMapEnabled;
 	}
 
 	static PHM_DebugTracker GetRecorder()
@@ -91,13 +96,9 @@ class PHM_DebugTracker
 		m_PHM_Subscribers.Remove(index);
 		PHM_Logger.Notice("Debug map unsubscribed: " + steamId);
 
-		//! Nobody watching any more, drop the recorded history so it does not go
-		//! stale while unobserved.
-		if (m_PHM_Subscribers.Count() == 0)
-		{
-			m_PHM_Edges.Clear();
-			m_PHM_Spotters.Clear();
-		}
+		//! History is deliberately KEPT across close/open cycles. It is bounded,
+		//! ages out via DebugMapEventLifetime, and reopening the map after a fight
+		//! must show what just happened - that is the whole point of the map.
 	}
 
 	void RecordSpotter(vector senderPos, vector playerPos, string playerName, float radius, int hop, PHM_Settings settings)

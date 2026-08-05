@@ -57,7 +57,7 @@ The mod is **standalone and zero-dependency**: `requiredAddons[]` contains nothi
 - Shared field of vision
 - Engine-native perception boost
 - Noise channel for no-LoS pull
-- Event driven, zero polling
+- Event driven, no per-zombie tick
 - Own infected registry
 - Vanilla navmesh pathing
 - Relay chains with hop depth
@@ -159,7 +159,7 @@ scripts/
     └── PHM_HiveMapMenu.c           ← the map screen itself
 ```
 
-> **No periodic tick in the hive path.** Broadcasting is driven by the mind state edge in `HandleMindStateChange`, and every lifetime is an absolute timestamp from `GetTickTime()` compared lazily. The only repeating timer in the mod belongs to the admin debug map, and its callback returns after a single bool read while nobody is watching.
+> **No per-zombie tick.** Broadcasting is driven by the mind state edge in `HandleMindStateChange`, and every lifetime is an absolute timestamp from `GetTickTime()` compared lazily. The mod runs exactly two server-wide repeating timers: the noise refresher (cadence `NoiseLifetimeSeconds`, early-outs on two float compares while the hive is idle) and the debug map push, whose callback returns immediately while nobody is watching. Neither scales with the number of infected.
 
 ## Profile Structure
 
@@ -202,7 +202,7 @@ profiles/<your-profile>/Psyerns_Hive_Mind/
     "DebugMapIntervalSeconds": 1.0,
     "DebugMapMaxNodes": 150,
     "DebugMapEventHistory": 20,
-    "DebugMapEventLifetime": 20.0,
+    "DebugMapEventLifetime": 60.0,
     "DebugMapAdmins": []
 }
 ```
@@ -270,7 +270,7 @@ profiles/<your-profile>/Psyerns_Hive_Mind/
 | `DebugMapIntervalSeconds` | `1.0` | Snapshot push interval. Clamp 0.25&ndash;10 |
 | `DebugMapMaxNodes` | `150` | Marked infected transmitted per snapshot. Bounds the packet size. Clamp 0&ndash;400 |
 | `DebugMapEventHistory` | `20` | Past broadcasts kept in the history. Clamp 0&ndash;100 |
-| `DebugMapEventLifetime` | `20.0` | Seconds until a connection fades from the map. Clamp 1&ndash;120 |
+| `DebugMapEventLifetime` | `60.0` | Seconds until a connection fades from the map. Clamp 1&ndash;120 |
 
 ---
 
@@ -364,7 +364,7 @@ The authority check lives **exclusively on the server**. A client can only *requ
 
 ### Cost
 
-With no map open the feature costs one bool read per second in the timer, and one more per hive broadcast. Nothing is recorded while nobody is watching.
+Snapshots are only built and sent while a whitelisted admin actually has the map open. History recording (edges, spotters) runs whenever `DebugMapEnabled` is set &mdash; bounded arrays, a handful of small allocations per broadcast &mdash; so that opening the map *after* a fight still shows what happened. With `DebugMapEnabled` off the whole feature costs one settings read per broadcast.
 
 ---
 

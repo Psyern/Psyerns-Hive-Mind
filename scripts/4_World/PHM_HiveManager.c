@@ -29,6 +29,15 @@ class PHM_HiveManager
 	protected PHM_DebugTracker m_PHM_Recorder;
 	protected vector m_PHM_SenderPos;
 
+	//! Last position a player was seen at by any broadcast, and until when the
+	//! hive keeps pulling towards it. Field-tested reason this exists: a single
+	//! AddNoiseTarget per broadcast (10 s lifetime) fires once and then the marked
+	//! infected without line of sight simply stop. The refresher below re-pings
+	//! this position for the boost duration, which is what actually moves a horde.
+	protected vector m_PHM_LastSeenPos;
+	protected float m_PHM_LastSeenUntil;
+	protected bool m_PHM_NoiseTimerRunning;
+
 	void PHM_HiveManager()
 	{
 		m_PHM_Marked = new array<ZombieBase>;
@@ -41,6 +50,9 @@ class PHM_HiveManager
 		m_PHM_TokenBudget = 0.0;
 		m_PHM_LastTokenRefill = 0.0;
 		m_PHM_RefreshedCount = 0;
+
+		m_PHM_LastSeenUntil = 0.0;
+		m_PHM_NoiseTimerRunning = false;
 	}
 
 	static PHM_HiveManager GetInstance()
@@ -119,11 +131,11 @@ class PHM_HiveManager
 		vector origin = sender.GetPosition();
 		float radius = settings.ShareRadius;
 
-		//! One static bool read on a production server. Only an admin with an open
-		//! map ever turns this on.
+		//! One settings read on a production server. GetInstance (not GetRecorder):
+		//! recording must work before any admin has ever opened the map.
 		m_PHM_Recorder = null;
 		if (PHM_DebugTracker.IsRecording())
-			m_PHM_Recorder = PHM_DebugTracker.GetRecorder();
+			m_PHM_Recorder = PHM_DebugTracker.GetInstance();
 
 		m_PHM_SenderPos = origin;
 
@@ -151,6 +163,13 @@ class PHM_HiveManager
 			return false;
 		}
 
+		//! Remember where the player was seen and keep pulling towards it for the
+		//! boost duration. Deliberately the LAST SEEN position, never live tracking:
+		//! the hive knows where you were spotted, not where you went.
+		m_PHM_LastSeenPos = seenPlayer.GetPosition();
+		m_PHM_LastSeenUntil = now + settings.BoostDurationSeconds;
+		StartNoiseRefresh(settings);
+
 		if (m_PHM_Recorder)
 		{
 			string playerName = "";
@@ -175,6 +194,71 @@ class PHM_HiveManager
 		}
 
 		return true;
+	}
+
+	//! One repeating server-wide timer, started lazily on the first successful
+	//! broadcast and never removed - the manager is a permanent singleton and the
+	//! callback early-outs on a couple of float compares while the hive is idle.
+	//! Vanilla pairing: missionServer.c:66 uses the same CALL_CATEGORY_SYSTEM
+	//! CallLater(func, interval, true) shape.
+	//!
+	//! The cadence is fixed from NoiseLifetimeSeconds at first start; a hot
+	//! reloaded lifetime changes the ping length immediately but the cadence only
+	//! after a server restart.
+	protected void StartNoiseRefresh(PHM_Settings settings)
+	{
+		if (m_PHM_NoiseTimerRunning)
+			return;
+
+		if (!settings.EnableNoisePing)
+			return;
+
+		if (!g_Game)
+			return;
+
+		ScriptCallQueue queue = g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM);
+		if (!queue)
+			return;
+
+		int interval = settings.NoiseLifetimeSeconds * 1000;
+		if (interval < 500)
+			interval = 500;
+
+		queue.CallLater(PHM_RefreshNoise, interval, true);
+		m_PHM_NoiseTimerRunning = true;
+	}
+
+	//! Re-pings the last seen position while any mark is alive, so infected
+	//! without line of sight keep walking instead of stalling after one stimulus.
+	void PHM_RefreshNoise()
+	{
+		if (!g_Game)
+			return;
+
+		if (!g_Game.IsDedicatedServer())
+			return;
+
+		if (g_Game.GetTickTime() >= m_PHM_LastSeenUntil)
+			return;
+
+		PHM_Settings settings = PHM_SettingsHolder.Get();
+		if (!settings)
+			return;
+
+		if (!settings.Enabled)
+			return;
+
+		if (!settings.EnableNoisePing)
+			return;
+
+		if (!PHM_TimeGate.IsActive(settings))
+			return;
+
+		PruneMarked();
+		if (m_PHM_Marked.Count() == 0)
+			return;
+
+		EmitNoisePing(m_PHM_LastSeenPos, settings);
 	}
 
 	//! Token bucket, refilled lazily. Capped at one second worth of budget so a

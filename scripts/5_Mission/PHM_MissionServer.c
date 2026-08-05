@@ -170,11 +170,6 @@ modded class MissionServer
 		if (!g_Game.IsDedicatedServer())
 			return;
 
-		//! Static bool read, no allocation, no instance creation. This is what the
-		//! timer costs while nobody has the map open.
-		if (!PHM_DebugTracker.IsRecording())
-			return;
-
 		PHM_Settings settings = PHM_SettingsHolder.Get();
 		if (!settings)
 			return;
@@ -182,8 +177,14 @@ modded class MissionServer
 		if (!settings.DebugMapEnabled)
 			return;
 
+		//! GetRecorder on purpose: the push loop must not create the tracker. And
+		//! snapshots are only BUILT while somebody actually watches - recording
+		//! history is independent of this and happens on the broadcast path.
 		PHM_DebugTracker tracker = PHM_DebugTracker.GetRecorder();
 		if (!tracker)
+			return;
+
+		if (!tracker.HasSubscribers())
 			return;
 
 		PHM_DebugSnapshot snapshot = tracker.BuildSnapshot();

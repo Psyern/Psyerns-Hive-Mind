@@ -86,7 +86,10 @@ class PHM_Settings
 		DebugMapIntervalSeconds = 1.0;
 		DebugMapMaxNodes = 150;
 		DebugMapEventHistory = 20;
-		DebugMapEventLifetime = 20.0;
+
+		//! 60, not 20: the admin opens the map AFTER the fight. With a short
+		//! lifetime everything has faded before the map is even on screen.
+		DebugMapEventLifetime = 60.0;
 
 		if (!DebugMapAdmins)
 			DebugMapAdmins = new array<string>;
