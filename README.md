@@ -1,155 +1,318 @@
 # Psyerns Hive Mind
 
-Alle Infizierten teilen sich ein neuronales Netz. Sieht ein Zombie einen Spieler,
-wissen es die Zombies im Teilungsradius — und kommen.
+<p align="center">
+  <img src="https://img.shields.io/badge/DayZ-1.29+-0074D9?style=for-the-badge&logo=steam&logoColor=white" alt="DayZ 1.29+">
+  <img src="https://img.shields.io/badge/Enforce_Script-Enfusion-FF851B?style=for-the-badge" alt="Enforce Script">
+  <img src="https://img.shields.io/badge/Dependencies-Zero-2ECC40?style=for-the-badge" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/Authority-Server_Side-8E44AD?style=for-the-badge" alt="Server Side">
+</p>
 
-Reiner **serverseitiger** Verhaltensmod. Kein Client-Anteil, keine RPCs, keine
-eigenen NetSync-Variablen, keine neuen Items.
+<p align="center">
+  <img src="https://img.shields.io/badge/Infected-Shared_Vision-E74C3C?style=flat-square" alt="Shared Vision">
+  <img src="https://img.shields.io/badge/Config-JSON_Hot_Reload-F0C040?style=flat-square" alt="JSON Config">
+  <img src="https://img.shields.io/badge/Admin-In_Game_Debug_Map-1ABC9C?style=flat-square" alt="Debug Map">
+  <img src="https://img.shields.io/badge/Tick-Event_Driven-3498DB?style=flat-square" alt="Event Driven">
+</p>
 
----
+<p align="center">
+  <b>All infected share one neural network. If one sees you, prepare yourself.</b><br>
+  A hardcore mutation for the Knox region &mdash; and a tool, if you are clever enough to use it.
+</p>
 
-## Wie es technisch funktioniert
-
-DayZ hat **keine** Script-API, mit der man einem Infizierten ein Ziel zuweisen
-könnte. `DayZInfectedInputController` besitzt ausschließlich Getter
-(`GetMindState`, `GetTargetEntity`), und `ZombieBase.m_ActualTarget` wird jeden
-Tick aus dem Controller neu gelesen. Der Mod nutzt deshalb die beiden einzigen
-belegten Kanäle:
-
-**1. Wahrnehmungs-Boost (der eigentliche Hive — deterministisch)**
-`AITargetCallbacks.GetMaxVisionRangeModifier(EntityAI pApplicant)` ist der einzige
-Punkt, an dem die Engine während der KI-Wahrnehmung Script fragt — und zwar *pro
-Ziel und pro beobachtender KI*. Markierte Zombies bekommen dort einen erhöhten
-Sichtweiten-Faktor und erfassen den Spieler dadurch auf große Entfernung. Ab da
-übernimmt die normale Vanilla-Verfolgung mit Navmesh und Pfadfindung — der Mod
-bewegt keinen Zombie selbst.
-
-Weil die Markierung ausschließlich als eigenes Script-Flag existiert, sind
-Radius und Anzahl exakt und reproduzierbar.
-
-**2. Noise-Ping (die Zugkraft — nicht deterministisch)**
-`NoiseSystem.AddNoiseTarget` setzt einen Reiz an der Spielerposition, den die KI
-für die eingestellte Dauer „sieht". Das erreicht auch Zombies **ohne Sichtlinie**
-und ist der Grund, warum Hordenlocken überhaupt funktioniert. Dieser Kanal ist ein
-Engine-Broadcast: er ignoriert `MaxSharedZombies`, und seine Reichweite lässt sich
-nicht exakt in Metern einstellen.
-
-### Wichtig zu verstehen
-
-- Der Sicht-Boost skaliert die Sicht**reichweite**, er ersetzt **keine
-  Sichtlinie**. Ein markierter Zombie hinter einem Gebäude sieht den Spieler
-  nicht — er wird über den Noise-Ping herangezogen, bis er Sicht bekommt.
-- `VisionRangeMultiplier` ist ein Faktor auf einen engine-internen Wert, **keine
-  Meterangabe**. Vanilla liefert dort ca. 0.225 – 1.25. Der Wert muss auf dem
-  Zielserver empirisch kalibriert werden (`LogBroadcasts` einschalten).
-- Markierte Zombies sind gegenüber **allen** Spielern hyperaufmerksam, nicht nur
-  gegenüber dem ursprünglich gesehenen. Genau das macht „Horde auf einen anderen
-  Spieler ziehen" möglich — Admins sollten es kennen.
-- Es gibt **keinen** periodischen Tick. Gesendet wird nur beim Flankenwechsel des
-  Mindstates, alle Laufzeiten sind absolute Zeitstempel und werden lazy
-  verglichen.
+<p align="center">
+  <a href="https://deadmans-echo.de">
+    <img src="https://img.shields.io/badge/Community-Deadmans_Echo-F0C040?style=for-the-badge" alt="Deadmans Echo">
+  </a>
+</p>
 
 ---
 
-## Installation
+## Repository Layout
 
-1. `Psyerns_Hive_Mind_V1` zu einem PBO packen.
-2. Über **`-mod`** laden — **nicht** `-serverMod`.
-3. Server einmal starten — die Settings-Datei wird mit Defaults angelegt.
+This repository is the DayZ mod itself &mdash; no companion services, no external backend, no build step.
 
-> **Wichtig:** Der Mod enthält seit der Admin-Debug-Karte Client-Inhalte (Layouts,
-> Menü, Keybind). PBOs, die über `-serverMod` geladen werden, werden Clients nie
-> angekündigt — die Karte funktioniert dann nicht, und je nach Setup werden
-> Clients beim Join abgelehnt. Der Mod muss deshalb über `-mod` laufen und liegt
-> damit bei **allen** Spielern.
->
-> Die Hive-Logik selbst bleibt davon unberührt: sie ist durchgehend mit
-> `IsDedicatedServer()` abgesichert und läuft ausschließlich auf dem Server.
-> Ohne Whitelist-Eintrag bekommt ein Client keinerlei Hive-Daten.
-
-Die Settings liegen unter dem `-profiles`-Pfad des Servers:
-
-```
-<profiles>/Psyerns_Hive_Mind/Settings/HiveMind.json
+```text
+Psyerns_Hive_Mind_V1/               ← DayZ mod (this README)
+├── config.cpp                      ← CfgPatches / CfgMods, three script modules
+├── gui/layouts/                    ← admin debug map layouts
+└── scripts/
+    ├── 3_Game/                     ← settings, constants, enums, RPC ids, DTOs
+    ├── 4_World/                    ← hive core, infected registry, engine hook
+    └── 5_Mission/                  ← server entry, client entry, map menu
 ```
 
----
-
-## Einstellungen
-
-| Key | Typ | Default | Bedeutung |
-|---|---|---|---|
-| `Version` | int | `1` | Schemaversion. Nicht von Hand ändern. |
-| `Enabled` | bool | `true` | Hauptschalter. Wirkt ohne Neustart. |
-| `ActiveTimeWindow` | int | `0` | `0` = immer, `1` = nur nachts, `2` = nur tagsüber. |
-| `UseCustomNightHours` | bool | `false` | `false` = Nacht kommt vom kartenkorrekten `World.IsNight()`. `true` = feste Uhrzeiten unten. |
-| `NightStartHour` | int | `20` | Nachtbeginn (0–23), nur bei `UseCustomNightHours`. Mitternachts-Überlauf wird unterstützt. |
-| `NightEndHour` | int | `6` | Nachtende (0–23). |
-| **`ShareRadius`** | float | `100.0` | **Regler 1.** Teilungsradius in Metern um den meldenden Zombie. 100 = eine Zelle. Clamp 0–2000. |
-| **`MaxSharedZombies`** | int | `16` | **Regler 2.** Harte Obergrenze, wie viele Zombies **gleichzeitig serverweit** markiert sein dürfen. Es gewinnen immer die nächsten. `3` = der Hardcore-Minimalmodus, `0` = niemand. Clamp 0–256. |
-| `TriggerLevel` | int | `2` | Ab welchem Mindstate gesendet wird: `0` Disturbed, `1` Alerted, `2` Chase, `3` Fight. **Unter Chase liefert `GetTargetEntity()` erwiesenermaßen nichts** — `0`/`1` sind experimentell. |
-| `BoostDurationSeconds` | float | `20.0` | Wie lange ein informierter Zombie hyperaufmerksam bleibt. Clamp 1–300. |
-| `VisionRangeMultiplier` | float | `3.0` | Faktor auf den Vanilla-Sichtweitenwert, solange markiert. `1.0` = kein Effekt. Empirisch kalibrieren. Clamp 1–50. |
-| `MaxRelayGenerations` | int | `1` | Kaskadenbremse: maximale Weiterleitungstiefe. `0` = nur wer den Spieler selbst gesehen hat, sendet. Clamp 0–5. |
-| `RelayMemorySeconds` | float | `60.0` | Wie lange ein Zombie seine Kettentiefe behält. Wird automatisch auf mindestens `BoostDurationSeconds` angehoben — sonst wäre die Weiterleitungsgrenze wirkungslos. Clamp 1–600. |
-| `SenderCooldownSeconds` | float | `8.0` | Sperrzeit pro Zombie nach erfolgreichem Senden. Clamp 0–120. |
-| `MaxBroadcastsPerSecond` | float | `10.0` | Serverweite Obergrenze für Meldungen pro Sekunde. Token-Bucket, auf eine Sekunde Budget gedeckelt. Clamp 0.1–100. |
-| `EnableNoisePing` | bool | `true` | Zweitkanal für Zombies ohne Sichtlinie. **Ohne ihn setzt sich die markierte Menge kaum in Bewegung** — Hordenlocken funktioniert dann nicht. Ignoriert `MaxSharedZombies`. |
-| `NoiseConfigPath` | string | `CfgVehicles SurvivorBase NoiseShout` | Config-Pfad für `NoiseParams.LoadFromPath`. Ein erfundener Pfad schlägt still fehl. |
-| `NoiseLifetimeSeconds` | float | `10.0` | Lebensdauer des Noise-Reizes in Sekunden. Vanilla nutzt 10 für Geschosseinschläge, 21 für Explosionen. Clamp 0.5–60. |
-| `NoiseStrengthMultiplier` | float | `1.0` | Stärkefaktor auf die Noise-Config. Vanilla nutzt auch Werte > 1 (z.B. 2.0 für die lange Autohupe). Clamp 0–10. |
-| `SettingsReloadSeconds` | float | `60.0` | Lädt die Datei im Sendepfad neu, falls älter als N Sekunden. `0` = aus. Spart Neustarts beim Kalibrieren. Clamp 0–3600. |
-| `LogBroadcasts` | bool | `false` | Schreibt pro Meldung Sender, Kandidaten, Markierte und Generation ins RPT. Im Dauerbetrieb aus lassen. |
-| `DebugMapEnabled` | bool | `false` | Hauptschalter der Admin-Karte. `false` = niemand bekommt Daten, auch niemand auf der Whitelist. |
-| `DebugMapAdmins` | string[] | `[]` | Steam64-IDs, die die Karte öffnen dürfen. **Leere Liste = niemand.** Wird bei jedem Push neu geprüft, Entzug wirkt also sofort ohne Neustart. |
-| `DebugMapIntervalSeconds` | float | `1.0` | Wie oft der Server einen Snapshot schickt. Clamp 0.25–10. |
-| `DebugMapMaxNodes` | int | `150` | Wie viele markierte Zombies pro Snapshot übertragen werden. Begrenzt die Paketgröße. Clamp 0–400. |
-| `DebugMapEventHistory` | int | `20` | Wie viele zurückliegende Meldungen im Verlauf gehalten werden. Clamp 0–100. |
-| `DebugMapEventLifetime` | float | `20.0` | Nach wie vielen Sekunden eine Verbindung von der Karte verschwindet. Clamp 1–120. |
+The mod is **standalone and zero-dependency**: `requiredAddons[]` contains nothing but `"DZ_Data"`.
 
 ---
 
-## Rezepte
+## Features
 
-**Hardcore, ganzer Tag (Standard)**
-Defaults übernehmen.
+<table>
+<tr>
+<td width="33%" valign="top">
 
-**Nur nachts**
+### Hive Core
+- Shared field of vision
+- Engine-native perception boost
+- Noise channel for no-LoS pull
+- Event driven, zero polling
+- Own infected registry
+- Vanilla navmesh pathing
+- Relay chains with hop depth
+
+</td>
+<td width="33%" valign="top">
+
+### Customization
+- All day / night only / day only
+- Native or fixed night hours
+- Share radius 0&ndash;2000 m
+- Hard cap down to 3 infected
+- Configurable trigger mind state
+- Relay depth limit
+- Live config reload
+
+</td>
+<td width="33%" valign="top">
+
+### Safety &amp; Ops
+- Server authoritative throughout
+- Four independent cascade brakes
+- Global broadcast rate limit
+- No engine space queries
+- Admin debug map (Steam64 gated)
+- RPT diagnostics on demand
+- Fail-closed on every guard
+
+</td>
+</tr>
+</table>
+
+### How It Works
+
+DayZ exposes **no target setter for infected**. `DayZInfectedInputController` is getter-only, and `ZombieBase.m_ActualTarget` is overwritten from the engine every tick. The mod therefore uses the only two channels that are actually provable against the 1.29 sources:
+
+| Channel | What it does | Deterministic |
+|---|---|---|
+| `AITargetCallbacksPlayer.GetMaxVisionRangeModifier` | The only script hook the engine calls **per target AND per observing AI**. Marked infected receive a boosted vision range; vanilla pathing does the rest. | Yes &mdash; the mark is a pure script flag |
+| `NoiseSystem.AddNoiseTarget` | A stimulus at the player position that also reaches infected **without line of sight**. This is what makes luring hordes possible. | No &mdash; engine broadcast, ignores the cap |
+
+Because the mark exists only as the mod's own flag on the zombie, both the share radius and the server-wide cap on simultaneously marked infected are **exact and reproducible**. Candidate selection walks a static registry the mod maintains itself &mdash; there is not a single `GetObjectsAtPosition` call anywhere in the mod.
+
+> **Line of sight still applies.** The vision boost scales *range*, it does not see through walls. A marked zombie behind a building is pulled in by the noise channel until it gains sight. That is deliberate: it keeps the feature fair.
+
+### Cascade Brakes
+
+One sighting must never cascade across the whole map. Four independent brakes work together:
+
+| Brake | Effect |
+|---|---|
+| Relay depth (`MaxRelayGenerations`) | Limits how many times an alert may be passed on |
+| Sender cooldown (`SenderCooldownSeconds`) | Limits how often a single zombie may broadcast |
+| Re-arm guard | One rising mind state edge produces exactly one broadcast |
+| Global rate limit (`MaxBroadcastsPerSecond`) | Token bucket, capped at one second of budget |
+
+---
+
+## Quick Start
+
+```
+1. Add Psyerns_Hive_Mind_V1 to your server mod load order (-mod, not -serverMod)
+2. Start the server → HiveMind.json auto-generates with defaults
+3. Defaults are already the intended hardcore experience: all day, 100 m radius
+4. Tune ShareRadius / MaxSharedZombies → changes apply live after 60 s
+```
+
+---
+
+## Script Structure
+
+```text
+config.cpp                          ← requiredVersion 0.1, requiredAddons DZ_Data
+gui/layouts/
+├── phm_hive_map.layout             ← admin map screen
+└── phm_hive_line.layout            ← single pooled connection line
+scripts/
+├── 3_Game/
+│   ├── PHM_Constants.c             ← paths, clamp bounds, colors, input names
+│   ├── PHM_Enums.c                 ← EPHM_TimeWindow, EPHM_TriggerLevel
+│   ├── PHM_Logger.c                ← RPT wrapper, debug output gated
+│   ├── PHM_Settings.c              ← JSON DTO, Defaults(), Validate(), admin check
+│   ├── PHM_SettingsHolder.c        ← file IO, migration, lazy hot reload
+│   ├── PHM_TimeGate.c              ← day / night decision
+│   ├── PHM_RPC.c                   ← RPC ids (>= 10000)
+│   └── PHM_DebugData.c             ← snapshot DTOs for the debug map
+├── 4_World/
+│   ├── PHM_ZombieBase.c            ← registry, hive state, mind state trigger
+│   ├── PHM_HiveManager.c           ← selection, cap enforcement, noise ping
+│   ├── PHM_AITargetCallbacksPlayer.c ← the engine perception hook
+│   └── PHM_DebugTracker.c          ← records edges, builds snapshots
+└── 5_Mission/
+    ├── PHM_MissionServer.c         ← settings load, RPC receive, snapshot push
+    ├── PHM_MissionGameplay.c       ← keybind registration, client RPC receive
+    ├── PHM_HiveMapClient.c         ← subscription glue
+    └── PHM_HiveMapMenu.c           ← the map screen itself
+```
+
+> **No periodic tick in the hive path.** Broadcasting is driven by the mind state edge in `HandleMindStateChange`, and every lifetime is an absolute timestamp from `GetTickTime()` compared lazily. The only repeating timer in the mod belongs to the admin debug map, and its callback returns after a single bool read while nobody is watching.
+
+## Profile Structure
+
+```text
+profiles/<your-profile>/Psyerns_Hive_Mind/
+└── Settings/
+    └── HiveMind.json               ← auto-generated on first start
+```
+
+---
+
+## Configuration
+
+**One file for everything:** `$profile:Psyerns_Hive_Mind\Settings\HiveMind.json`
+
+```json
+{
+    "Version": 1,
+    "Enabled": true,
+    "ActiveTimeWindow": 0,
+    "UseCustomNightHours": false,
+    "NightStartHour": 20,
+    "NightEndHour": 6,
+    "ShareRadius": 100.0,
+    "MaxSharedZombies": 16,
+    "TriggerLevel": 2,
+    "BoostDurationSeconds": 20.0,
+    "VisionRangeMultiplier": 3.0,
+    "MaxRelayGenerations": 1,
+    "RelayMemorySeconds": 60.0,
+    "SenderCooldownSeconds": 8.0,
+    "MaxBroadcastsPerSecond": 10.0,
+    "EnableNoisePing": true,
+    "NoiseConfigPath": "CfgVehicles SurvivorBase NoiseShout",
+    "NoiseLifetimeSeconds": 10.0,
+    "NoiseStrengthMultiplier": 1.0,
+    "SettingsReloadSeconds": 60.0,
+    "LogBroadcasts": false,
+    "DebugMapEnabled": false,
+    "DebugMapIntervalSeconds": 1.0,
+    "DebugMapMaxNodes": 150,
+    "DebugMapEventHistory": 20,
+    "DebugMapEventLifetime": 20.0,
+    "DebugMapAdmins": []
+}
+```
+
+> **Auto-Upgrade:** The config carries a `Version` field. When the mod ships new fields, the server detects the outdated version, keeps every existing value and writes the file back with the missing defaults added. No manual editing required.
+
+> **Validation:** Every value passes `Math.Clamp` after loading. No number read from JSON ever reaches the selection loop unchecked.
+
+### General
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `Version` | `1` | Schema version &mdash; used for auto-upgrade, do not edit manually |
+| `Enabled` | `true` | Master switch. Takes effect live, no restart needed |
+| `SettingsReloadSeconds` | `60.0` | Re-reads the file from the broadcast path when older than N seconds. `0` disables. Clamp 0&ndash;3600 |
+| `LogBroadcasts` | `false` | Writes sender, candidates, newly marked and hop depth to the RPT. Leave off in production |
+
+### Time Window
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `ActiveTimeWindow` | `0` | `0` always, `1` night only, `2` day only |
+| `UseCustomNightHours` | `false` | `false` uses the map-correct native `World.IsNight()`. `true` uses the fixed hours below |
+| `NightStartHour` | `20` | Night start (0&ndash;23). Midnight wrap supported |
+| `NightEndHour` | `6` | Night end (0&ndash;23) |
+
+### Hive Behaviour
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| **`ShareRadius`** | `100.0` | **Dial 1.** Share radius in metres around the reporting zombie. 100 equals one cell. Clamp 0&ndash;2000 |
+| **`MaxSharedZombies`** | `16` | **Dial 2.** Hard ceiling on how many infected may be marked **simultaneously, server wide**. Nearest always win. `3` is the hardcore minimum, `0` disables sharing. Clamp 0&ndash;256 |
+| `TriggerLevel` | `2` | Mind state that triggers a broadcast: `0` Disturbed, `1` Alerted, `2` Chase, `3` Fight |
+| `BoostDurationSeconds` | `20.0` | How long an informed zombie stays hyper-aware. Clamp 1&ndash;300 |
+| `VisionRangeMultiplier` | `3.0` | Factor on the vanilla vision range value while marked. `1.0` is no effect. Clamp 1&ndash;50 |
+
+> **`TriggerLevel` below Chase is experimental.** Vanilla only ever reads `GetTargetEntity()` in `MINDSTATE_CHASE` and `MINDSTATE_FIGHT` (`ZombieBase.c:679` / `:720`, guarded by the comment *"we attack only in chase & fight state"*). There is no evidence it returns anything below Chase, so `0` and `1` may simply never fire.
+
+> **`VisionRangeMultiplier` is a factor, not a distance.** Vanilla returns roughly 0.225&ndash;1.25 from this callback (`PlayerConstants.AI_VISIBILITY_*`). The engine-side conversion to metres is not exposed to script, so the value has to be calibrated empirically on your server.
+
+### Cascade Brakes
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `MaxRelayGenerations` | `1` | Maximum relay depth. `0` means only infected that saw the player themselves broadcast. Clamp 0&ndash;5 |
+| `RelayMemorySeconds` | `60.0` | How long a zombie remembers its hop depth. Automatically raised to at least `BoostDurationSeconds` &mdash; otherwise the relay limit would be meaningless. Clamp 1&ndash;600 |
+| `SenderCooldownSeconds` | `8.0` | Lockout per zombie after a successful broadcast. Clamp 0&ndash;120 |
+| `MaxBroadcastsPerSecond` | `10.0` | Server-wide ceiling on broadcasts per second. Token bucket, capped at one second of budget. Clamp 0.1&ndash;100 |
+
+### Noise Channel
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `EnableNoisePing` | `true` | Second channel that reaches infected without line of sight. **Without it, luring hordes does not work.** Ignores `MaxSharedZombies` |
+| `NoiseConfigPath` | `CfgVehicles SurvivorBase NoiseShout` | Config path for `NoiseParams.LoadFromPath`. An invented path fails silently |
+| `NoiseLifetimeSeconds` | `10.0` | How long the stimulus lives. Vanilla uses 10 for bullet impacts, 21 for explosions. Clamp 0.5&ndash;60 |
+| `NoiseStrengthMultiplier` | `1.0` | Strength factor on the noise config. Vanilla uses values above 1 as well (2.0 for the long car horn). Clamp 0&ndash;10 |
+
+### Admin Debug Map
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `DebugMapEnabled` | `false` | Master switch. `false` means nobody receives data, not even whitelisted admins |
+| `DebugMapAdmins` | `[]` | Steam64 IDs allowed to open the map. **Empty list means nobody.** Re-checked on every push, so revoking takes effect immediately |
+| `DebugMapIntervalSeconds` | `1.0` | Snapshot push interval. Clamp 0.25&ndash;10 |
+| `DebugMapMaxNodes` | `150` | Marked infected transmitted per snapshot. Bounds the packet size. Clamp 0&ndash;400 |
+| `DebugMapEventHistory` | `20` | Past broadcasts kept in the history. Clamp 0&ndash;100 |
+| `DebugMapEventLifetime` | `20.0` | Seconds until a connection fades from the map. Clamp 1&ndash;120 |
+
+---
+
+## Presets
+
+### Hardcore, all day (default)
+
+Ship as-is.
+
+### Night only
+
 ```json
 "ActiveTimeWindow": 1
 ```
 
-**Nur tagsüber**
+### Day only
+
 ```json
 "ActiveTimeWindow": 2
 ```
 
-**Massiv erhöht — halbe Stadt kommt**
+### Massively increased &mdash; half the town comes
+
 ```json
 "ShareRadius": 400.0,
 "MaxSharedZombies": 128,
 "MaxBroadcastsPerSecond": 25.0
 ```
 
-**Ganz weit runter — nie mehr als 3 Zombies**
+### All the way down &mdash; never more than 3 infected
+
 ```json
 "MaxSharedZombies": 3,
 "MaxRelayGenerations": 0,
 "EnableNoisePing": false
 ```
-Alle drei Werte gehören hier zusammen:
-- `MaxSharedZombies: 3` — nie mehr als 3 gleichzeitig markierte Zombies serverweit.
-- `MaxRelayGenerations: 0` — sonst rücken über die Kette laufend neue nach, sobald
-  die alten ablaufen. Die Obergrenze von 3 *gleichzeitig* bleibt zwar bestehen,
-  aber in Summe werden über die Zeit deutlich mehr Zombies alarmiert.
-- `EnableNoisePing: false` — **wichtig.** Der Noise-Ping ist ein Engine-Broadcast an
-  eine Weltposition und kennt keine Adressierung einzelner Zombies. Er ignoriert
-  `MaxSharedZombies` vollständig und würde die 3er-Grenze faktisch aushebeln.
 
-Der Preis: ohne Noise-Ping wirkt der Hive nur noch über Sichtlinie. Genau das ist
-in diesem Minimalmodus aber gewollt.
+All three values belong together:
 
-**Feste Nachtzeiten statt Sonnenstand**
+- `MaxSharedZombies: 3` &mdash; never more than 3 marked infected server wide
+- `MaxRelayGenerations: 0` &mdash; otherwise the chain keeps feeding new infected in as old marks expire. The cap of 3 *simultaneous* still holds, but far more infected get alerted over time
+- `EnableNoisePing: false` &mdash; **important.** The noise ping is an engine broadcast to a world position with no per-zombie addressing. It ignores `MaxSharedZombies` entirely and would defeat the limit
+
+The price: without the noise ping the hive only works along line of sight. In this minimal mode that is exactly the point.
+
+### Fixed night hours instead of sun position
+
 ```json
 "ActiveTimeWindow": 1,
 "UseCustomNightHours": true,
@@ -159,70 +322,109 @@ in diesem Minimalmodus aber gewollt.
 
 ---
 
-## Admin-Debug-Karte
+## Admin Debug Map
 
-Live-Ansicht des Hive im Spiel: welche Zombies gerade markiert sind, wer wen
-informiert hat und wie weit der Teilungsradius wirklich reicht.
+Live in-game view of the hive: which infected are marked, who informed whom, and how far the share radius actually reaches.
 
-### Einrichten
+### Setup
 
-1. Eigene Steam64-ID eintragen und den Schalter setzen:
+1. Add your Steam64 ID and flip the switch:
    ```json
    "DebugMapEnabled": true,
    "DebugMapAdmins": ["76561198000000000"]
    ```
-2. Server neu starten (oder `SettingsReloadSeconds` abwarten).
-3. Im Spiel unter **Optionen → Steuerung → Psyerns Hive Mind** die Taste für
-   *Hive Debug Map* belegen. Der Mod schreibt keine Taste vor.
-4. Taste drücken. ESC oder dieselbe Taste schließt die Karte wieder.
+2. Restart the server, or wait for `SettingsReloadSeconds`
+3. In game, bind a key under **Options &rarr; Controls &rarr; Psyerns Hive Mind &rarr; Hive Debug Map**. The mod does not hardcode a key
+4. Press it. ESC or the same key closes the map again
 
-### Was zu sehen ist
+### What you see
 
-| Element | Bedeutung |
+| Element | Meaning |
 |---|---|
-| 🔴 **SICHTER** | Zombie, der den Spieler tatsächlich selbst gesehen hat (hop 0 Quelle). |
-| 🟢 **Spielername** | Der gesehene Spieler. Linie dorthin = die Sichtung selbst. |
-| 🟠 Marker `hop 0` | Direkt vom Sichter informiert. |
-| 🔵 Marker `hop ≥ 1` | Über die Relaiskette informiert. |
-| Zahl am Marker | Restsekunden des Sicht-Boosts. |
-| Farbige Linien | Wer wen informiert hat. Blassen mit dem Alter aus. |
-| Graue Linien | Bereits markierter Zombie, dessen Timer nur aufgefrischt wurde. |
-| Roter Ring | `ShareRadius` um einen frischen Sichter — so siehst du direkt, ob der Radius passt. |
+| **SICHTER** marker (red) | The zombie that actually saw the player, plus a line to the player it saw |
+| Marker `hop 0` (amber) | Informed directly by the spotter |
+| Marker `hop >= 1` (blue) | Informed through the relay chain |
+| Number on the marker | Remaining seconds of the vision boost |
+| Coloured lines | Who informed whom. Fade out with age |
+| Grey lines | Already marked zombie whose timer was only refreshed |
+| Red ring | `ShareRadius` around a fresh spotter &mdash; shows immediately whether the radius fits |
 
-Das Infofeld links oben zeigt Zeitfenster-Status, `markiert / cap`, Registry-Größe,
-Radius, Sichtmultiplikator, Weltzeit und Relaistiefe.
+The panel top left shows time window status, `marked / cap`, registry size, radius, vision multiplier, world time and relay depth.
 
-### Sicherheit
+### Security
 
-Die Autoritätsprüfung liegt **ausschließlich auf dem Server**. Der Client kann nur
-ein Abo *anfragen*; ob er Daten bekommt, entscheidet die Whitelist, und sie wird
-bei **jedem** Push neu geprüft. Ein nicht gelisteter Spieler bekommt nichts —
-ein Abholversuch landet als Warnung im RPT.
+The authority check lives **exclusively on the server**. A client can only *request* a subscription; whether it receives anything is decided by the whitelist, and the whitelist is re-checked on **every** push. A player not on the list receives nothing.
 
-### Kosten
+### Cost
 
-Ohne offene Karte kostet das Feature einen Bool-Vergleich pro Sekunde
-(`PHM_DebugTracker.IsRecording()` im Timer) und einen weiteren pro Hive-Meldung.
-Es wird nichts aufgezeichnet, solange niemand zuschaut.
+With no map open the feature costs one bool read per second in the timer, and one more per hive broadcast. Nothing is recorded while nobody is watching.
 
 ---
 
-## Kalibrieren
+## Installation
 
-1. `"LogBroadcasts": true` setzen.
-2. Ins RPT schauen: `[PHM][DBG] broadcast hop=… candidates=… newlyMarked=… markedTotal=…`
-3. `candidates` zu niedrig → `ShareRadius` erhöhen.
-4. Zombies reagieren nicht sichtbar → `VisionRangeMultiplier` schrittweise
-   erhöhen und/oder `NoiseStrengthMultiplier`.
-5. `SettingsReloadSeconds` steht auf 60 — Änderungen greifen ohne Neustart.
+### Requirements
+
+| | |
+|---|---|
+| **DayZ** | 1.29+ |
+| **Dependencies** | None &mdash; standalone mod |
+| **Load order** | `-mod` &mdash; **not** `-serverMod` |
+
+### Step-by-Step
+
+1. Pack `Psyerns_Hive_Mind_V1` into a PBO
+2. Add it to your server mod load order via **`-mod`**
+3. Start the server once &mdash; `HiveMind.json` generates with defaults
+4. Tune the settings, they apply live after `SettingsReloadSeconds`
+
+> **Why `-mod` and not `-serverMod`.** Since the admin debug map the mod ships client content: layouts, a menu and a keybind. PBOs loaded through `-serverMod` are never announced to clients, so the map would not work and, depending on the setup, clients get rejected on join. The mod therefore has to run through `-mod` and lives with **every** player.
+>
+> The hive logic itself is unaffected: it is guarded with `IsDedicatedServer()` throughout and runs on the server only. Without a whitelist entry a client receives no hive data whatsoever.
 
 ---
 
-## Vor dem produktiven Einsatz testen
+## Calibration
 
-`EEDelete` wird von keiner Vanilla- oder Expansion-Creature-Klasse überschrieben;
-ob die Engine es für `DayZCreature`-Ableitungen überhaupt feuert, ist aus den
-Script-Quellen nicht beweisbar. Der Mod meldet Zombies deshalb **dreifach**
-abgesichert ab (Destruktor, `EEDelete`, plus Null-/`IsSetForDeletion`-/`IsAlive`-
-Prüfung in jeder Auswahlschleife). Ein Lauftest mit Zombie töten **und**
-CE-Despawn abwarten ist trotzdem empfohlen.
+1. Set `"LogBroadcasts": true`
+2. Watch the RPT: `[PHM][DBG] broadcast hop=... candidates=... newlyMarked=... markedTotal=...`
+3. `candidates` too low &rarr; raise `ShareRadius`
+4. Infected do not react visibly &rarr; raise `VisionRangeMultiplier`, and/or `NoiseStrengthMultiplier`
+5. `SettingsReloadSeconds` defaults to 60, so changes apply without a restart
+
+---
+
+## Engine Notes
+
+Findings from building this mod, verified against the DayZ 1.29 sources. They are the reason the mod is built the way it is.
+
+| Finding | Consequence |
+|---|---|
+| No target setter exists for infected. `DayZInfectedInputController` is getter-only, `m_ActualTarget` is overwritten every tick from `GetTargetEntity()` | The hive works through perception, never by steering zombies directly |
+| `GetMaxVisionRangeModifier(EntityAI pApplicant)` is called per target **and** per observing AI. `pApplicant` is the observing infected | The only hook that can express "this specific zombie perceives that specific player better" |
+| `AITargetCallbacksPlayer` is instantiated server-side only (`PlayerBase.c:6033-6042`) | A `modded class` on it is inherently server authoritative |
+| `DayZInfectedConstants` shares its ordinal range with the `COMMANDID_*` entries, so `MINDSTATE_CALM` is 7 and `MINDSTATE_FIGHT` is 11 &mdash; but `ZombieBase.Init` registers `m_MindState` with `RegisterNetSyncVariableInt(-1, 4)` | The replicated mind state cannot carry the real value. `GetMindStateSynced()` is unusable; the mod reads the server-side value and compares only against named constants |
+| `EEDelete` is overridden by no vanilla or Expansion creature class, so it is unprovable from script whether the engine fires it for `DayZCreature` derivatives | Infected are unregistered through **three** redundant paths: destructor, `EEDelete`, plus null / `IsSetForDeletion` / `IsAlive` checks in every selection loop |
+| Expansion's `ModCommandHandlerBefore` returns `true` for lobotomised infected **without** calling `super` | Countdown timers in that hook would silently stall. The mod uses absolute timestamps instead and overrides the hook not at all |
+
+### Known Limitations
+
+- **No compiler was run.** Every API used was verified individually against the 1.29 sources, but the mod has not been compiled or run on a live server
+- **The line geometry on the debug map is unverified.** The code assumes `SetRotation` pivots around the widget centre. If lines appear offset in game, the pivot is the corner instead and only the placement in `DrawLine` needs to change
+- **`EEDelete` behaviour for infected should be tested once** &mdash; kill a zombie *and* wait out a CE despawn, with the triple unregister in place as the safety net
+
+---
+
+## Credits
+
+<p align="center">
+  <b>Author:</b> <a href="https://steamcommunity.com/profiles/76561198043039918/">Psyern</a><br><br>
+  <b>Community:</b> <a href="https://deadmansecho.com">Deadmans Echo</a><br><br>
+  Built for players who think the Knox region was not hostile enough.
+</p>
+
+---
+
+## License
+
+No license file ships with this repository yet. Until one is added, all rights are reserved by the author.
