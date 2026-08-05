@@ -4,14 +4,14 @@
   <img src="https://img.shields.io/badge/DayZ-1.29+-0074D9?style=for-the-badge&logo=steam&logoColor=white" alt="DayZ 1.29+">
   <img src="https://img.shields.io/badge/Enforce_Script-Enfusion-FF851B?style=for-the-badge" alt="Enforce Script">
   <img src="https://img.shields.io/badge/Dependencies-Zero-2ECC40?style=for-the-badge" alt="Zero Dependencies">
-  <img src="https://img.shields.io/badge/Authority-Server_Side-8E44AD?style=for-the-badge" alt="Server Side">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License MIT"></a>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Authority-Server_Side-8E44AD?style=flat-square" alt="Server Side">
   <img src="https://img.shields.io/badge/Infected-Shared_Vision-E74C3C?style=flat-square" alt="Shared Vision">
   <img src="https://img.shields.io/badge/Config-JSON_Hot_Reload-F0C040?style=flat-square" alt="JSON Config">
   <img src="https://img.shields.io/badge/Admin-In_Game_Debug_Map-1ABC9C?style=flat-square" alt="Debug Map">
-  <img src="https://img.shields.io/badge/Tick-Event_Driven-3498DB?style=flat-square" alt="Event Driven">
 </p>
 
 <p align="center">
@@ -427,4 +427,11 @@ Findings from building this mod, verified against the DayZ 1.29 sources. They ar
 
 ## License
 
-No license file ships with this repository yet. Until one is added, all rights are reserved by the author.
+Psyerns Hive Mind is licensed under the **MIT License** &mdash; see [`LICENSE`](LICENSE).
+
+You may use, modify, repack and redistribute this mod, including commercially, as
+long as the copyright notice and the license text stay with it.
+
+The mod contains no third-party code. It targets the vanilla DayZ script API only
+and has no dependency on DayZ Expansion, Community Framework or Dabs Framework &mdash;
+`requiredAddons[]` lists nothing but `"DZ_Data"`.
