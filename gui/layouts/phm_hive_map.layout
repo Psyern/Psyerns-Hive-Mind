@@ -1,0 +1,217 @@
+PanelWidgetClass phm_root {
+ position 0 0
+ size 1 1
+ hexactpos 0
+ vexactpos 0
+ hexactsize 0
+ vexactsize 0
+ color 0.0196 0.0235 0.0314 1
+ {
+  MapWidgetClass phm_map {
+   ignorepointer 0
+   keepsafezone 1
+   position 0 0
+   size 1 1
+   hexactpos 0
+   vexactpos 0
+   hexactsize 0
+   vexactsize 0
+  }
+  PanelWidgetClass phm_overlay {
+   ignorepointer 1
+   "no focus" 1
+   position 0 0
+   size 1 1
+   hexactpos 0
+   vexactpos 0
+   hexactsize 0
+   vexactsize 0
+   color 0 0 0 0
+   priority 10
+  }
+  PanelWidgetClass phm_hud {
+   ignorepointer 1
+   "no focus" 1
+   position 12 12
+   size 330 244
+   hexactpos 1
+   vexactpos 1
+   hexactsize 1
+   vexactsize 1
+   color 0.0235 0.0275 0.0353 0.8627
+   priority 20
+   {
+    PanelWidgetClass phm_accent {
+     ignorepointer 1
+     position 0 0
+     size 3 244
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     color 0.9294 0.2314 0.1725 1
+    }
+    TextWidgetClass phm_title {
+     ignorepointer 1
+     position 16 12
+     size 300 22
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "PSYERNS HIVE MIND"
+     "exact text" 1
+     "exact text size" 16
+     "text color" 0.9294 0.2314 0.1725 1
+    }
+    TextWidgetClass phm_line_status {
+     ignorepointer 1
+     position 16 40
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "warte auf Server ..."
+     "exact text" 1
+     "exact text size" 14
+     "text color" 0.8 0.8235 0.8588 1
+    }
+    TextWidgetClass phm_line_marked {
+     ignorepointer 1
+     position 16 62
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text ""
+     "exact text" 1
+     "exact text size" 14
+     "text color" 0.8 0.8235 0.8588 1
+    }
+    TextWidgetClass phm_line_radius {
+     ignorepointer 1
+     position 16 84
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text ""
+     "exact text" 1
+     "exact text size" 14
+     "text color" 0.8 0.8235 0.8588 1
+    }
+    TextWidgetClass phm_line_time {
+     ignorepointer 1
+     position 16 106
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text ""
+     "exact text" 1
+     "exact text size" 14
+     "text color" 0.8 0.8235 0.8588 1
+    }
+    TextWidgetClass phm_line_relay {
+     ignorepointer 1
+     position 16 128
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text ""
+     "exact text" 1
+     "exact text size" 14
+     "text color" 0.8 0.8235 0.8588 1
+    }
+    PanelWidgetClass phm_swatch_spotter {
+     ignorepointer 1
+     position 16 158
+     size 10 10
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     color 0.9294 0.2314 0.1725 1
+    }
+    TextWidgetClass phm_legend_spotter {
+     ignorepointer 1
+     position 34 154
+     size 280 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "Sichter (hat den Spieler gesehen)"
+     "exact text" 1
+     "exact text size" 13
+     "text color" 0.6706 0.6941 0.7333 1
+    }
+    PanelWidgetClass phm_swatch_hop0 {
+     ignorepointer 1
+     position 16 180
+     size 10 10
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     color 1 0.7333 0.2 1
+    }
+    TextWidgetClass phm_legend_hop0 {
+     ignorepointer 1
+     position 34 176
+     size 280 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "markiert, direkt informiert"
+     "exact text" 1
+     "exact text size" 13
+     "text color" 0.6706 0.6941 0.7333 1
+    }
+    PanelWidgetClass phm_swatch_hop1 {
+     ignorepointer 1
+     position 16 202
+     size 10 10
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     color 0.3216 0.6588 1 1
+    }
+    TextWidgetClass phm_legend_hop1 {
+     ignorepointer 1
+     position 34 198
+     size 280 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "markiert ueber Relais (hop >= 1)"
+     "exact text" 1
+     "exact text size" 13
+     "text color" 0.6706 0.6941 0.7333 1
+    }
+    TextWidgetClass phm_legend_close {
+     ignorepointer 1
+     position 16 220
+     size 300 18
+     hexactpos 1
+     vexactpos 1
+     hexactsize 1
+     vexactsize 1
+     text "ESC schliesst die Karte"
+     "exact text" 1
+     "exact text size" 13
+     "text color" 0.4706 0.4941 0.5333 1
+    }
+   }
+  }
+ }
+}

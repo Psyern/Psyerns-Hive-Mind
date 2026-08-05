@@ -1,0 +1,14 @@
+# Build output
+*.pbo
+*.ebo
+
+# Signing keys - NEVER commit the private key
+*.biprivatekey
+*.bikey
+*.bisign
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

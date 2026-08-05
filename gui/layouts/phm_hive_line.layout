@@ -1,0 +1,11 @@
+PanelWidgetClass phm_line {
+ ignorepointer 1
+ "no focus" 1
+ position 0 0
+ size 2 2
+ hexactpos 1
+ vexactpos 1
+ hexactsize 1
+ vexactsize 1
+ color 1 1 1 1
+}
