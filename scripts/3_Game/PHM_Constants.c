@@ -6,7 +6,9 @@ class PHM_Constants
 	static const string SETTINGS_DIR = "$profile:Psyerns_Hive_Mind\\Settings\\";
 	static const string SETTINGS_FILE = "$profile:Psyerns_Hive_Mind\\Settings\\HiveMind.json";
 
-	static const int SETTINGS_VERSION = 1;
+	//! v2: NoisePingIntervalSeconds, LiveTrackWhileSeen, ExperimentalAlertOverride,
+	//! AlertOverrideLevel, AlertOverrideInLevel
+	static const int SETTINGS_VERSION = 2;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
@@ -81,6 +83,19 @@ class PHM_Constants
 	//! How many distinct Steam ids a rejected-request warning is remembered for.
 	//! Caps RPT writes on a path any client can reach.
 	static const int DEBUG_WARN_IDS_MAX = 64;
+
+	//! Noise refresher cadence.
+	static const float PING_INTERVAL_MIN = 1.0;
+	static const float PING_INTERVAL_MAX = 60.0;
+
+	//! Experimental alert override. AIBehaviourHLDataZombie2 parses the alert
+	//! level names Calm/Disturbed/Attracted/Alerted from config (AIBehaviour.c:133-136),
+	//! which suggests an ordinal 0..3 - but the engine-side mapping of
+	//! OverrideAlertLevel's parameters is unverified, hence configurable bounds.
+	static const int ALERT_LEVEL_MIN = 0;
+	static const int ALERT_LEVEL_MAX = 4;
+	static const float ALERT_INLEVEL_MIN = 0.0;
+	static const float ALERT_INLEVEL_MAX = 10.0;
 
 	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
 	//! through the CfgMods "inputs" property.

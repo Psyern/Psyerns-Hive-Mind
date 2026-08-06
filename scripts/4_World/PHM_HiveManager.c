@@ -220,7 +220,7 @@ class PHM_HiveManager
 		if (!queue)
 			return;
 
-		int interval = settings.NoiseLifetimeSeconds * 1000;
+		int interval = settings.NoisePingIntervalSeconds * 1000;
 		if (interval < 500)
 			interval = 500;
 
@@ -228,17 +228,19 @@ class PHM_HiveManager
 		m_PHM_NoiseTimerRunning = true;
 	}
 
-	//! Re-pings the last seen position while any mark is alive, so infected
-	//! without line of sight keep walking instead of stalling after one stimulus.
+	//! Keeps the pursuit alive while any mark exists. Two behaviours:
+	//! - LiveTrackWhileSeen: if any marked infected actively targets a player, the
+	//!   ping aims at that player's CURRENT position and the pursuit window is
+	//!   extended - "while any hive eye sees you, the hive knows where you are".
+	//!   Without this, pings aim at a stale position and stop BoostDurationSeconds
+	//!   after the last broadcast even during an ongoing chase.
+	//! - Otherwise: re-pings the last seen position until the window expires.
 	void PHM_RefreshNoise()
 	{
 		if (!g_Game)
 			return;
 
 		if (!g_Game.IsDedicatedServer())
-			return;
-
-		if (g_Game.GetTickTime() >= m_PHM_LastSeenUntil)
 			return;
 
 		PHM_Settings settings = PHM_SettingsHolder.Get();
@@ -258,7 +260,45 @@ class PHM_HiveManager
 		if (m_PHM_Marked.Count() == 0)
 			return;
 
+		float now = g_Game.GetTickTime();
+
+		if (settings.LiveTrackWhileSeen)
+		{
+			PlayerBase seenPlayer = FindActivelySeenPlayer();
+			if (seenPlayer)
+			{
+				m_PHM_LastSeenPos = seenPlayer.GetPosition();
+				m_PHM_LastSeenUntil = now + settings.BoostDurationSeconds;
+			}
+		}
+
+		if (now >= m_PHM_LastSeenUntil)
+			return;
+
 		EmitNoisePing(m_PHM_LastSeenPos, settings);
+	}
+
+	//! First marked infected with an active player target wins. Bounded by the
+	//! marked cap (max 256), runs only on the refresher cadence.
+	protected PlayerBase FindActivelySeenPlayer()
+	{
+		int count = m_PHM_Marked.Count();
+		int index;
+		ZombieBase zombie;
+		PlayerBase player;
+
+		for (index = 0; index < count; index++)
+		{
+			zombie = m_PHM_Marked.Get(index);
+			if (!zombie)
+				continue;
+
+			player = zombie.PHM_GetActiveTargetPlayer();
+			if (player)
+				return player;
+		}
+
+		return null;
 	}
 
 	//! Token bucket, refilled lazily. Capped at one second worth of budget so a
@@ -321,6 +361,9 @@ class PHM_HiveManager
 			}
 			else if (!zombie.PHM_IsHiveAlerted())
 			{
+				//! Leaving the marked set alive: release the experimental alert
+				//! override so the zombie falls back to untouched vanilla behaviour.
+				zombie.PHM_ReleaseAlertOverride();
 				m_PHM_Marked.Remove(index);
 			}
 
@@ -374,6 +417,12 @@ class PHM_HiveManager
 			if (zombie.PHM_IsHiveAlerted())
 			{
 				zombie.PHM_ApplyHiveAlert(settings.BoostDurationSeconds, settings.RelayMemorySeconds, hop);
+
+				//! Re-applied on refresh so a hot-reloaded flip of the experiment
+				//! switch reaches zombies that are already marked. Idempotent.
+				if (settings.ExperimentalAlertOverride)
+					zombie.PHM_ApplyAlertOverride(settings.AlertOverrideLevel, settings.AlertOverrideInLevel);
+
 				m_PHM_RefreshedCount = m_PHM_RefreshedCount + 1;
 
 				if (m_PHM_Recorder)
@@ -445,6 +494,10 @@ class PHM_HiveManager
 				continue;
 
 			zombie.PHM_ApplyHiveAlert(settings.BoostDurationSeconds, settings.RelayMemorySeconds, hop);
+
+			if (settings.ExperimentalAlertOverride)
+				zombie.PHM_ApplyAlertOverride(settings.AlertOverrideLevel, settings.AlertOverrideInLevel);
+
 			m_PHM_Marked.Insert(zombie);
 			applied = applied + 1;
 

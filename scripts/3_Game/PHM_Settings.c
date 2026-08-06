@@ -28,6 +28,12 @@ class PHM_Settings
 	string NoiseConfigPath;
 	float NoiseLifetimeSeconds;
 	float NoiseStrengthMultiplier;
+	float NoisePingIntervalSeconds;
+	bool LiveTrackWhileSeen;
+
+	bool ExperimentalAlertOverride;
+	int AlertOverrideLevel;
+	float AlertOverrideInLevel;
 
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
@@ -78,6 +84,22 @@ class PHM_Settings
 		NoiseConfigPath = "CfgVehicles SurvivorBase NoiseShout";
 		NoiseLifetimeSeconds = 10.0;
 		NoiseStrengthMultiplier = 1.0;
+
+		//! Cadence below lifetime so the stimulus overlaps instead of gapping.
+		NoisePingIntervalSeconds = 5.0;
+
+		//! While any marked infected actively has a player as target, the
+		//! refresher aims at that player's CURRENT position and keeps the pursuit
+		//! window open. Without this, pings aim at a stale position and stop
+		//! BoostDurationSeconds after the last broadcast even during a live chase.
+		LiveTrackWhileSeen = true;
+
+		//! Forces OverrideAlertLevel on marked infected. The parameter semantics
+		//! are not provable from script (zero call sites anywhere), so this is an
+		//! experiment switch: off by default, values tunable via hot reload.
+		ExperimentalAlertOverride = false;
+		AlertOverrideLevel = 3;
+		AlertOverrideInLevel = 1.0;
 
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
@@ -132,6 +154,9 @@ class PHM_Settings
 
 		NoiseLifetimeSeconds = Math.Clamp(NoiseLifetimeSeconds, PHM_Constants.NOISE_LIFETIME_MIN, PHM_Constants.NOISE_LIFETIME_MAX);
 		NoiseStrengthMultiplier = Math.Clamp(NoiseStrengthMultiplier, PHM_Constants.NOISE_STRENGTH_MIN, PHM_Constants.NOISE_STRENGTH_MAX);
+		NoisePingIntervalSeconds = Math.Clamp(NoisePingIntervalSeconds, PHM_Constants.PING_INTERVAL_MIN, PHM_Constants.PING_INTERVAL_MAX);
+		AlertOverrideLevel = Math.Clamp(AlertOverrideLevel, PHM_Constants.ALERT_LEVEL_MIN, PHM_Constants.ALERT_LEVEL_MAX);
+		AlertOverrideInLevel = Math.Clamp(AlertOverrideInLevel, PHM_Constants.ALERT_INLEVEL_MIN, PHM_Constants.ALERT_INLEVEL_MAX);
 
 		SettingsReloadSeconds = Math.Clamp(SettingsReloadSeconds, PHM_Constants.RELOAD_SECONDS_MIN, PHM_Constants.RELOAD_SECONDS_MAX);
 

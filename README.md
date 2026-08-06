@@ -260,6 +260,18 @@ profiles/<your-profile>/Psyerns_Hive_Mind/
 | `NoiseConfigPath` | `CfgVehicles SurvivorBase NoiseShout` | Config path for `NoiseParams.LoadFromPath`. An invented path fails silently |
 | `NoiseLifetimeSeconds` | `10.0` | How long the stimulus lives. Vanilla uses 10 for bullet impacts, 21 for explosions. Clamp 0.5&ndash;60 |
 | `NoiseStrengthMultiplier` | `1.0` | Strength factor on the noise config. Vanilla uses values above 1 as well (2.0 for the long car horn). Clamp 0&ndash;10 |
+| `NoisePingIntervalSeconds` | `5.0` | Refresher cadence. Below the lifetime so the stimulus overlaps instead of gapping. Clamp 1&ndash;60 |
+| `LiveTrackWhileSeen` | `true` | While any marked infected actively targets a player, pings aim at that player's **current** position and the pursuit window stays open. Off = pings stick to the last seen position and stop after `BoostDurationSeconds` |
+
+### Experimental
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `ExperimentalAlertOverride` | `false` | Forces `OverrideAlertLevel` on marked infected so they act alerted even without their own stimulus. The engine-side meaning of the parameters is unverified &mdash; that is why this is a switch, off by default, hot-reloadable for live experimentation |
+| `AlertOverrideLevel` | `3` | `level` parameter. The engine parses four alert states (Calm/Disturbed/Attracted/Alerted), suggesting 0&ndash;3. Clamp 0&ndash;4 |
+| `AlertOverrideInLevel` | `1.0` | `inLevel` parameter, meaning unknown. Clamp 0&ndash;10 |
+
+> The override is applied on marking and re-applied on refresh, and released the moment a zombie leaves the marked set. Flipping the switch off mid-boost releases within `BoostDurationSeconds`.
 
 ### Admin Debug Map
 

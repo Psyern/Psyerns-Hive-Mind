@@ -84,6 +84,83 @@ modded class ZombieBase
 		return m_PHM_Hop;
 	}
 
+	//! The player this infected is actively targeting right now, or null.
+	//! Reading the input controller outside CommandHandler has vanilla precedent:
+	//! the engine does exactly that during perception (AITargetCallbacksPlayer.c:24-33).
+	PlayerBase PHM_GetActiveTargetPlayer()
+	{
+		if (IsSetForDeletion())
+			return null;
+
+		if (!IsAlive())
+			return null;
+
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return null;
+
+		EntityAI target = controller.GetTargetEntity();
+		if (!target)
+			return null;
+
+		PlayerBase player = PlayerBase.Cast(target);
+		if (!player)
+			return null;
+
+		if (!player.CanBeTargetedByAI(this))
+			return null;
+
+		return player;
+	}
+
+	//! Experimental: force the engine alert level while marked. Signature verified
+	//! (DayZCreatureAIInputController.c:21), parameter SEMANTICS are not - which is
+	//! why level/inLevel come from config and the feature defaults to off.
+	void PHM_ApplyAlertOverride(int level, float inLevel)
+	{
+		if (!g_Game)
+			return;
+
+		if (!g_Game.IsDedicatedServer())
+			return;
+
+		if (IsSetForDeletion())
+			return;
+
+		if (!IsAlive())
+			return;
+
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return;
+
+		controller.OverrideAlertLevel(true, true, level, inLevel);
+	}
+
+	//! Releases the override. Called unconditionally when a zombie leaves the
+	//! marked set - releasing a never-set override is harmless (state=false is the
+	//! documented release form, same shape Expansion uses for its overrides).
+	void PHM_ReleaseAlertOverride()
+	{
+		if (!g_Game)
+			return;
+
+		if (!g_Game.IsDedicatedServer())
+			return;
+
+		if (IsSetForDeletion())
+			return;
+
+		if (!IsAlive())
+			return;
+
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return;
+
+		controller.OverrideAlertLevel(false, false, 0, 0.0);
+	}
+
 	//! Seconds of vision boost left. Debug map only.
 	float PHM_GetHiveRemaining()
 	{
