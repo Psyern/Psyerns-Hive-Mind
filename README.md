@@ -288,6 +288,18 @@ Infected have **no ladder animation and no ladder command** &mdash; but the navm
 
 > Rooftops without navmesh stay safe: the target position must sample onto the navmesh, otherwise a placed zombie could not act up there and the climb is refused.
 
+### Door Opening (hardcore option)
+
+Marked infected open **unlocked** doors that stand directly between them and their actively seen target. Detection is a chest-height ray towards the target (the exact idiom Expansion's eAI uses for its door handling); the zombie "fumbles at the handle" for `DoorOpenDelaySeconds`, then the server opens the door and vanilla pathing walks through. **Locked doors keep their meaning and are never opened** &mdash; locking yourself in still works, closing a door merely buys seconds.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `EnableDoorOpening` | `false` | The switch. Closed doors stop being walls |
+| `DoorOpenDelaySeconds` | `3.0` | Fumbling time before the door opens &mdash; your warning. Clamp 0.5&ndash;30 |
+| `DoorCooldownSeconds` | `15.0` | Per-zombie cooldown after opening a door. Clamp 5&ndash;300 |
+| `DoorMaxDistance` | `20.0` | Maximum horizontal distance to the target to bother with doors. Clamp 5&ndash;50 |
+| `DoorsPerTick` | `2` | Door evaluations per refresher tick. Clamp 1&ndash;10 |
+
 ### Admin Debug Map
 
 | Field | Default | Description |

@@ -10,7 +10,9 @@ class PHM_Constants
 	//! AlertOverrideLevel, AlertOverrideInLevel
 	//! v3: EnableLadderClimb, ClimbMinHeight, ClimbMaxDistance,
 	//! ClimbDurationSeconds, ClimbCooldownSeconds, ClimbersPerTick
-	static const int SETTINGS_VERSION = 3;
+	//! v4: EnableDoorOpening, DoorOpenDelaySeconds, DoorCooldownSeconds,
+	//! DoorMaxDistance, DoorsPerTick
+	static const int SETTINGS_VERSION = 4;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
@@ -119,6 +121,22 @@ class PHM_Constants
 	//! Placement height slack: the first ladder-path waypoint at least this close
 	//! below the target's height is treated as the top of the climb.
 	static const float CLIMB_TOP_SLACK = 1.5;
+
+	//! Door opening option.
+	static const float DOOR_DELAY_MIN = 0.5;
+	static const float DOOR_DELAY_MAX = 30.0;
+	static const float DOOR_COOLDOWN_MIN = 5.0;
+	static const float DOOR_COOLDOWN_MAX = 300.0;
+	static const float DOOR_DIST_MIN = 5.0;
+	static const float DOOR_DIST_MAX = 50.0;
+	static const int DOORS_PER_TICK_MIN = 1;
+	static const int DOORS_PER_TICK_MAX = 10;
+
+	//! Ray from the zombie's chest towards the target: a door only counts when it
+	//! is directly in the way at arm's length.
+	static const float DOOR_RAY_LENGTH = 2.5;
+	static const float DOOR_RAY_HEIGHT = 1.2;
+	static const float DOOR_RAY_RADIUS = 0.3;
 
 	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
 	//! through the CfgMods "inputs" property.

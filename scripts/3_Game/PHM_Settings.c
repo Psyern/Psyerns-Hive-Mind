@@ -42,6 +42,12 @@ class PHM_Settings
 	float ClimbCooldownSeconds;
 	int ClimbersPerTick;
 
+	bool EnableDoorOpening;
+	float DoorOpenDelaySeconds;
+	float DoorCooldownSeconds;
+	float DoorMaxDistance;
+	int DoorsPerTick;
+
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
 
@@ -120,6 +126,15 @@ class PHM_Settings
 		ClimbCooldownSeconds = 30.0;
 		ClimbersPerTick = 2;
 
+		//! Hardcore option: marked infected open unlocked doors that stand
+		//! directly between them and their actively seen target. Locked doors
+		//! keep their meaning and are never opened.
+		EnableDoorOpening = false;
+		DoorOpenDelaySeconds = 3.0;
+		DoorCooldownSeconds = 15.0;
+		DoorMaxDistance = 20.0;
+		DoorsPerTick = 2;
+
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
 
@@ -182,6 +197,11 @@ class PHM_Settings
 		ClimbDurationSeconds = Math.Clamp(ClimbDurationSeconds, PHM_Constants.CLIMB_DURATION_MIN, PHM_Constants.CLIMB_DURATION_MAX);
 		ClimbCooldownSeconds = Math.Clamp(ClimbCooldownSeconds, PHM_Constants.CLIMB_COOLDOWN_MIN, PHM_Constants.CLIMB_COOLDOWN_MAX);
 		ClimbersPerTick = Math.Clamp(ClimbersPerTick, PHM_Constants.CLIMBERS_PER_TICK_MIN, PHM_Constants.CLIMBERS_PER_TICK_MAX);
+
+		DoorOpenDelaySeconds = Math.Clamp(DoorOpenDelaySeconds, PHM_Constants.DOOR_DELAY_MIN, PHM_Constants.DOOR_DELAY_MAX);
+		DoorCooldownSeconds = Math.Clamp(DoorCooldownSeconds, PHM_Constants.DOOR_COOLDOWN_MIN, PHM_Constants.DOOR_COOLDOWN_MAX);
+		DoorMaxDistance = Math.Clamp(DoorMaxDistance, PHM_Constants.DOOR_DIST_MIN, PHM_Constants.DOOR_DIST_MAX);
+		DoorsPerTick = Math.Clamp(DoorsPerTick, PHM_Constants.DOORS_PER_TICK_MIN, PHM_Constants.DOORS_PER_TICK_MAX);
 
 		SettingsReloadSeconds = Math.Clamp(SettingsReloadSeconds, PHM_Constants.RELOAD_SECONDS_MIN, PHM_Constants.RELOAD_SECONDS_MAX);
 

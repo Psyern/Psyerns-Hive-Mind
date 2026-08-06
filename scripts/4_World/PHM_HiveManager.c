@@ -46,6 +46,10 @@ class PHM_HiveManager
 	protected ref PGFilter m_PHM_LadderFilter;
 	protected ref array<vector> m_PHM_PathWaypoints;
 
+	//! Reused raycast buffers for door detection (no new in the tick loop).
+	protected ref array<ref RaycastRVResult> m_PHM_RayResults;
+	protected ref array<Object> m_PHM_RayExcluded;
+
 	void PHM_HiveManager()
 	{
 		m_PHM_Marked = new array<ZombieBase>;
@@ -63,6 +67,8 @@ class PHM_HiveManager
 		m_PHM_NoiseTimerRunning = false;
 
 		m_PHM_PathWaypoints = new array<vector>;
+		m_PHM_RayResults = new array<ref RaycastRVResult>;
+		m_PHM_RayExcluded = new array<Object>;
 	}
 
 	static PHM_HiveManager GetInstance()
@@ -283,6 +289,9 @@ class PHM_HiveManager
 		if (settings.EnableLadderClimb && seenPlayer)
 			ProcessClimbs(now, seenPlayer, settings);
 
+		if (settings.EnableDoorOpening && seenPlayer)
+			ProcessDoors(now, seenPlayer, settings);
+
 		if (now >= m_PHM_LastSeenUntil)
 			return;
 
@@ -472,6 +481,142 @@ class PHM_HiveManager
 		vector last = m_PHM_PathWaypoints.Get(count - 1);
 		float distance = vector.Distance(last, goal);
 		return distance <= PHM_Constants.CLIMB_REACH_EPSILON;
+	}
+
+	//! Door opening. A marked zombie close to its actively seen target arms a
+	//! short "fumbling at the handle" delay; when it elapses, a chest-height ray
+	//! towards the target checks whether a closed, UNLOCKED, openable door stands
+	//! directly in the way - if so the server opens it and vanilla pathing walks
+	//! through. Locked doors keep their meaning and are never touched.
+	protected void ProcessDoors(float now, PlayerBase target, PHM_Settings settings)
+	{
+		vector targetPos = target.GetPosition();
+
+		int processed = 0;
+		int count = m_PHM_Marked.Count();
+		int index;
+		ZombieBase zombie;
+
+		for (index = 0; index < count; index++)
+		{
+			if (processed >= settings.DoorsPerTick)
+				break;
+
+			zombie = m_PHM_Marked.Get(index);
+			if (!zombie)
+				continue;
+
+			if (zombie.IsSetForDeletion())
+				continue;
+
+			if (!zombie.IsAlive())
+				continue;
+
+			if (zombie.PHM_DoorOnCooldown(now))
+				continue;
+
+			vector zombiePos = zombie.GetPosition();
+
+			vector flatZombie = Vector(zombiePos[0], 0.0, zombiePos[2]);
+			vector flatTarget = Vector(targetPos[0], 0.0, targetPos[2]);
+			float horizontal = vector.Distance(flatZombie, flatTarget);
+			if (horizontal > settings.DoorMaxDistance)
+			{
+				zombie.PHM_DisarmDoor();
+				continue;
+			}
+
+			processed = processed + 1;
+
+			float readyAt = zombie.PHM_GetDoorReadyAt();
+			if (readyAt <= 0.0)
+			{
+				zombie.PHM_ArmDoor(now + settings.DoorOpenDelaySeconds);
+				continue;
+			}
+
+			if (now < readyAt)
+				continue;
+
+			if (TryOpenDoor(zombie, zombiePos, targetPos, settings))
+				zombie.PHM_FinishDoor(now + settings.DoorCooldownSeconds);
+			else
+				zombie.PHM_DisarmDoor();
+		}
+	}
+
+	//! Raycast idiom is production Expansion eAI door handling (eAIBase.c:11545ff):
+	//! RaycastRVProxy with ObjIntersectView, then Building.GetDoorIndex on the hit
+	//! component. Signatures: RaycastRVParams ctor DayZPhysics.c:78, RaycastRVProxy
+	//! DayZPhysics.c:208, door APIs Building.c:16-65, CanDoorBeOpened Building.c:130
+	//! (checkIfLocked=true returns false for locked doors - exactly the policy here).
+	protected bool TryOpenDoor(ZombieBase zombie, vector zombiePos, vector targetPos, PHM_Settings settings)
+	{
+		vector direction = targetPos - zombiePos;
+		direction[1] = 0.0;
+		if (direction.Length() < 0.1)
+			return false;
+
+		//! Component-wise scaling on purpose: in EnScript 'vector * vector' is the
+		//! CROSS product, so no operator arithmetic beyond +/- is used on vectors.
+		direction = direction.Normalized();
+		float stepX = direction[0] * PHM_Constants.DOOR_RAY_LENGTH;
+		float stepZ = direction[2] * PHM_Constants.DOOR_RAY_LENGTH;
+
+		vector rayFrom = zombiePos + Vector(0.0, PHM_Constants.DOOR_RAY_HEIGHT, 0.0);
+		vector rayTo = rayFrom + Vector(stepX, 0.0, stepZ);
+
+		RaycastRVParams params = new RaycastRVParams(rayFrom, rayTo, zombie, PHM_Constants.DOOR_RAY_RADIUS);
+		params.with = zombie;
+		params.flags = CollisionFlags.ALLOBJECTS;
+		params.type = ObjIntersectView;
+
+		m_PHM_RayResults.Clear();
+		m_PHM_RayExcluded.Clear();
+		m_PHM_RayExcluded.Insert(zombie);
+
+		if (!DayZPhysics.RaycastRVProxy(params, m_PHM_RayResults, m_PHM_RayExcluded))
+			return false;
+
+		int count = m_PHM_RayResults.Count();
+		int index;
+		RaycastRVResult rayResult;
+		BuildingBase building;
+		int doorIndex;
+
+		for (index = 0; index < count; index++)
+		{
+			rayResult = m_PHM_RayResults.Get(index);
+			if (!rayResult)
+				continue;
+
+			building = BuildingBase.Cast(rayResult.obj);
+			if (!building)
+				continue;
+
+			doorIndex = building.GetDoorIndex(rayResult.component);
+			if (doorIndex == -1)
+				continue;
+
+			if (building.IsDoorOpen(doorIndex))
+				continue;
+
+			//! Locks stay meaningful - the hive does not pick locks.
+			if (building.IsDoorLocked(doorIndex))
+				continue;
+
+			if (!building.CanDoorBeOpened(doorIndex, true))
+				continue;
+
+			building.OpenDoor(doorIndex);
+
+			if (settings.LogBroadcasts)
+				PHM_Logger.Debug("door opened: index " + doorIndex.ToString() + " at " + zombiePos.ToString());
+
+			return true;
+		}
+
+		return false;
 	}
 
 	//! Built once. Walk filter mirrors Expansion's ground movement set with

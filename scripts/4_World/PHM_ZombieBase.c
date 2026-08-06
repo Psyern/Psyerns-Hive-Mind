@@ -24,6 +24,10 @@ modded class ZombieBase
 	protected float m_PHM_ClimbReadyAt;
 	protected float m_PHM_ClimbCooldownUntil;
 
+	//! Door opening bookkeeping, same state machine as the climb.
+	protected float m_PHM_DoorReadyAt;
+	protected float m_PHM_DoorCooldownUntil;
+
 	void ZombieBase()
 	{
 		m_PHM_HiveUntil = 0.0;
@@ -32,6 +36,8 @@ modded class ZombieBase
 		m_PHM_Hop = 0;
 		m_PHM_ClimbReadyAt = 0.0;
 		m_PHM_ClimbCooldownUntil = 0.0;
+		m_PHM_DoorReadyAt = 0.0;
+		m_PHM_DoorCooldownUntil = 0.0;
 
 		//! Matches vanilla m_LastMindState / m_MindState, which both start at -1.
 		//! 0 would be a value the mind state range never produces.
@@ -192,6 +198,32 @@ modded class ZombieBase
 	{
 		m_PHM_ClimbReadyAt = 0.0;
 		m_PHM_ClimbCooldownUntil = cooldownUntil;
+	}
+
+	bool PHM_DoorOnCooldown(float now)
+	{
+		return now < m_PHM_DoorCooldownUntil;
+	}
+
+	float PHM_GetDoorReadyAt()
+	{
+		return m_PHM_DoorReadyAt;
+	}
+
+	void PHM_ArmDoor(float readyAt)
+	{
+		m_PHM_DoorReadyAt = readyAt;
+	}
+
+	void PHM_DisarmDoor()
+	{
+		m_PHM_DoorReadyAt = 0.0;
+	}
+
+	void PHM_FinishDoor(float cooldownUntil)
+	{
+		m_PHM_DoorReadyAt = 0.0;
+		m_PHM_DoorCooldownUntil = cooldownUntil;
 	}
 
 	//! Seconds of vision boost left. Debug map only.
