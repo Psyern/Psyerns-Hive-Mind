@@ -273,6 +273,21 @@ profiles/<your-profile>/Psyerns_Hive_Mind/
 
 > The override is applied on marking and re-applied on refresh, and released the moment a zombie leaves the marked set. Flipping the switch off mid-boost releases within `BoostDurationSeconds`.
 
+### Ladder Climbing (hardcore option)
+
+Infected have **no ladder animation and no ladder command** &mdash; but the navmesh knows ladder connectivity (`PGPolyFlags.LADDER`; eAI soldiers use exactly this). So the hive simulates the climb: a marked zombie that can reach its target **only** via a ladder waits at the base for `ClimbDurationSeconds` ("it is climbing"), then is placed on the ladder path's top waypoint &mdash; a navmesh point by construction &mdash; and vanilla AI resumes the hunt up there. Zombies that can reach you via stairs or ramps keep walking; the climb only fires when the walk-only path fails while the ladder path reaches you.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `EnableLadderClimb` | `false` | The switch. Ladders stop being safe |
+| `ClimbMinHeight` | `3.0` | Minimum height advantage (m) that counts as "elevated". Clamp 2&ndash;30 |
+| `ClimbMaxDistance` | `15.0` | Maximum horizontal distance (m) to consider a climb. Clamp 5&ndash;50 |
+| `ClimbDurationSeconds` | `8.0` | Simulated climb time at the base before the zombie appears at the top. Clamp 1&ndash;60 |
+| `ClimbCooldownSeconds` | `30.0` | Per-zombie cooldown after a climb. Clamp 5&ndash;600 |
+| `ClimbersPerTick` | `2` | Climb evaluations per refresher tick &mdash; the horde comes up the ladder as a drip, not a teleport wave. Clamp 1&ndash;10 |
+
+> Rooftops without navmesh stay safe: the target position must sample onto the navmesh, otherwise a placed zombie could not act up there and the climb is refused.
+
 ### Admin Debug Map
 
 | Field | Default | Description |

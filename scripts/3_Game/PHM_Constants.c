@@ -8,7 +8,9 @@ class PHM_Constants
 
 	//! v2: NoisePingIntervalSeconds, LiveTrackWhileSeen, ExperimentalAlertOverride,
 	//! AlertOverrideLevel, AlertOverrideInLevel
-	static const int SETTINGS_VERSION = 2;
+	//! v3: EnableLadderClimb, ClimbMinHeight, ClimbMaxDistance,
+	//! ClimbDurationSeconds, ClimbCooldownSeconds, ClimbersPerTick
+	static const int SETTINGS_VERSION = 3;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
@@ -96,6 +98,27 @@ class PHM_Constants
 	static const int ALERT_LEVEL_MAX = 4;
 	static const float ALERT_INLEVEL_MIN = 0.0;
 	static const float ALERT_INLEVEL_MAX = 10.0;
+
+	//! Ladder climb option.
+	static const float CLIMB_HEIGHT_MIN = 2.0;
+	static const float CLIMB_HEIGHT_MAX = 30.0;
+	static const float CLIMB_DIST_MIN = 5.0;
+	static const float CLIMB_DIST_MAX = 50.0;
+	static const float CLIMB_DURATION_MIN = 1.0;
+	static const float CLIMB_DURATION_MAX = 60.0;
+	static const float CLIMB_COOLDOWN_MIN = 5.0;
+	static const float CLIMB_COOLDOWN_MAX = 600.0;
+	static const int CLIMBERS_PER_TICK_MIN = 1;
+	static const int CLIMBERS_PER_TICK_MAX = 10;
+
+	//! How close to the navmesh a position must sample, and how close a path end
+	//! must come to the target to count as "reaches it".
+	static const float CLIMB_SAMPLE_RADIUS = 3.0;
+	static const float CLIMB_REACH_EPSILON = 3.0;
+
+	//! Placement height slack: the first ladder-path waypoint at least this close
+	//! below the target's height is treated as the top of the climb.
+	static const float CLIMB_TOP_SLACK = 1.5;
 
 	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
 	//! through the CfgMods "inputs" property.

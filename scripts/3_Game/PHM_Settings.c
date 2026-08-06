@@ -35,6 +35,13 @@ class PHM_Settings
 	int AlertOverrideLevel;
 	float AlertOverrideInLevel;
 
+	bool EnableLadderClimb;
+	float ClimbMinHeight;
+	float ClimbMaxDistance;
+	float ClimbDurationSeconds;
+	float ClimbCooldownSeconds;
+	int ClimbersPerTick;
+
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
 
@@ -101,6 +108,18 @@ class PHM_Settings
 		AlertOverrideLevel = 3;
 		AlertOverrideInLevel = 1.0;
 
+		//! Hardcore option: marked infected "climb" ladders. Infected have no
+		//! ladder animation or command, but the navmesh knows ladder connectivity
+		//! (PGPolyFlags.LADDER) - a zombie that can reach the player ONLY via a
+		//! ladder waits ClimbDurationSeconds at the base, then is placed on the
+		//! navmesh point at the top and vanilla AI resumes the hunt up there.
+		EnableLadderClimb = false;
+		ClimbMinHeight = 3.0;
+		ClimbMaxDistance = 15.0;
+		ClimbDurationSeconds = 8.0;
+		ClimbCooldownSeconds = 30.0;
+		ClimbersPerTick = 2;
+
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
 
@@ -157,6 +176,12 @@ class PHM_Settings
 		NoisePingIntervalSeconds = Math.Clamp(NoisePingIntervalSeconds, PHM_Constants.PING_INTERVAL_MIN, PHM_Constants.PING_INTERVAL_MAX);
 		AlertOverrideLevel = Math.Clamp(AlertOverrideLevel, PHM_Constants.ALERT_LEVEL_MIN, PHM_Constants.ALERT_LEVEL_MAX);
 		AlertOverrideInLevel = Math.Clamp(AlertOverrideInLevel, PHM_Constants.ALERT_INLEVEL_MIN, PHM_Constants.ALERT_INLEVEL_MAX);
+
+		ClimbMinHeight = Math.Clamp(ClimbMinHeight, PHM_Constants.CLIMB_HEIGHT_MIN, PHM_Constants.CLIMB_HEIGHT_MAX);
+		ClimbMaxDistance = Math.Clamp(ClimbMaxDistance, PHM_Constants.CLIMB_DIST_MIN, PHM_Constants.CLIMB_DIST_MAX);
+		ClimbDurationSeconds = Math.Clamp(ClimbDurationSeconds, PHM_Constants.CLIMB_DURATION_MIN, PHM_Constants.CLIMB_DURATION_MAX);
+		ClimbCooldownSeconds = Math.Clamp(ClimbCooldownSeconds, PHM_Constants.CLIMB_COOLDOWN_MIN, PHM_Constants.CLIMB_COOLDOWN_MAX);
+		ClimbersPerTick = Math.Clamp(ClimbersPerTick, PHM_Constants.CLIMBERS_PER_TICK_MIN, PHM_Constants.CLIMBERS_PER_TICK_MAX);
 
 		SettingsReloadSeconds = Math.Clamp(SettingsReloadSeconds, PHM_Constants.RELOAD_SECONDS_MIN, PHM_Constants.RELOAD_SECONDS_MAX);
 

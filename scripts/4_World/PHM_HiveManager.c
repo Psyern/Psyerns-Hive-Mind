@@ -38,6 +38,14 @@ class PHM_HiveManager
 	protected float m_PHM_LastSeenUntil;
 	protected bool m_PHM_NoiseTimerRunning;
 
+	//! Ladder climb path filters, built once on first use. Idiom is production
+	//! Expansion code (expansionpathfilters.c:58-106): new PGFilter() +
+	//! SetFlags(include, exclude, exclusive) with OR'd PGPolyFlags, plus a low
+	//! SetCost on PGAreaType.LADDER - exactly how eAI soldiers use ladders.
+	protected ref PGFilter m_PHM_WalkFilter;
+	protected ref PGFilter m_PHM_LadderFilter;
+	protected ref array<vector> m_PHM_PathWaypoints;
+
 	void PHM_HiveManager()
 	{
 		m_PHM_Marked = new array<ZombieBase>;
@@ -53,6 +61,8 @@ class PHM_HiveManager
 
 		m_PHM_LastSeenUntil = 0.0;
 		m_PHM_NoiseTimerRunning = false;
+
+		m_PHM_PathWaypoints = new array<vector>;
 	}
 
 	static PHM_HiveManager GetInstance()
@@ -262,15 +272,16 @@ class PHM_HiveManager
 
 		float now = g_Game.GetTickTime();
 
-		if (settings.LiveTrackWhileSeen)
+		PlayerBase seenPlayer = FindActivelySeenPlayer();
+
+		if (settings.LiveTrackWhileSeen && seenPlayer)
 		{
-			PlayerBase seenPlayer = FindActivelySeenPlayer();
-			if (seenPlayer)
-			{
-				m_PHM_LastSeenPos = seenPlayer.GetPosition();
-				m_PHM_LastSeenUntil = now + settings.BoostDurationSeconds;
-			}
+			m_PHM_LastSeenPos = seenPlayer.GetPosition();
+			m_PHM_LastSeenUntil = now + settings.BoostDurationSeconds;
 		}
+
+		if (settings.EnableLadderClimb && seenPlayer)
+			ProcessClimbs(now, seenPlayer, settings);
 
 		if (now >= m_PHM_LastSeenUntil)
 			return;
@@ -299,6 +310,192 @@ class PHM_HiveManager
 		}
 
 		return null;
+	}
+
+	//! The ladder climb. A marked zombie qualifies when the target is elevated,
+	//! close horizontally, and reachable ONLY via a ladder polygon: the walk-only
+	//! path must fail to get near the target while the ladder-inclusive path
+	//! reaches it. First detection arms a per-zombie delay ("it is climbing"),
+	//! a later tick places it on the ladder path's top waypoint - which is a
+	//! navmesh point by construction, so vanilla AI resumes the hunt up there.
+	protected void ProcessClimbs(float now, PlayerBase target, PHM_Settings settings)
+	{
+		World world = g_Game.GetWorld();
+		if (!world)
+			return;
+
+		AIWorld aiWorld = world.GetAIWorld();
+		if (!aiWorld)
+			return;
+
+		if (!EnsureClimbFilters())
+			return;
+
+		vector targetPos = target.GetPosition();
+
+		int processed = 0;
+		int count = m_PHM_Marked.Count();
+		int index;
+		ZombieBase zombie;
+
+		for (index = 0; index < count; index++)
+		{
+			if (processed >= settings.ClimbersPerTick)
+				break;
+
+			zombie = m_PHM_Marked.Get(index);
+			if (!zombie)
+				continue;
+
+			if (zombie.IsSetForDeletion())
+				continue;
+
+			if (!zombie.IsAlive())
+				continue;
+
+			if (zombie.PHM_ClimbOnCooldown(now))
+				continue;
+
+			vector zombiePos = zombie.GetPosition();
+
+			float heightDelta = targetPos[1] - zombiePos[1];
+			if (heightDelta < settings.ClimbMinHeight)
+			{
+				zombie.PHM_DisarmClimb();
+				continue;
+			}
+
+			vector flatZombie = Vector(zombiePos[0], 0.0, zombiePos[2]);
+			vector flatTarget = Vector(targetPos[0], 0.0, targetPos[2]);
+			float horizontal = vector.Distance(flatZombie, flatTarget);
+			if (horizontal > settings.ClimbMaxDistance)
+			{
+				zombie.PHM_DisarmClimb();
+				continue;
+			}
+
+			processed = processed + 1;
+
+			float readyAt = zombie.PHM_GetClimbReadyAt();
+			if (readyAt <= 0.0)
+			{
+				//! First eligible sighting: start the simulated climb delay. The
+				//! path checks only run once the delay has elapsed.
+				zombie.PHM_ArmClimb(now + settings.ClimbDurationSeconds);
+				continue;
+			}
+
+			if (now < readyAt)
+				continue;
+
+			if (TryClimb(aiWorld, zombie, zombiePos, targetPos, settings))
+			{
+				zombie.PHM_FinishClimb(now + settings.ClimbCooldownSeconds);
+
+				if (settings.LogBroadcasts)
+				{
+					float targetHeight = targetPos[1];
+					PHM_Logger.Debug("climb executed at " + zombiePos.ToString() + " -> target height " + targetHeight.ToString());
+				}
+			}
+			else
+			{
+				//! No ladder route (or reachable normally): reset so the state
+				//! machine re-arms cleanly on the next eligible sighting.
+				zombie.PHM_DisarmClimb();
+			}
+		}
+	}
+
+	//! Returns true only when the climb actually happened.
+	protected bool TryClimb(AIWorld aiWorld, ZombieBase zombie, vector zombiePos, vector targetPos, PHM_Settings settings)
+	{
+		vector fromSampled;
+		if (!aiWorld.SampleNavmeshPosition(zombiePos, PHM_Constants.CLIMB_SAMPLE_RADIUS, m_PHM_LadderFilter, fromSampled))
+			return false;
+
+		//! Target must sample onto navmesh too - a rooftop without navmesh would
+		//! leave the zombie unable to act up there, so it must not climb at all.
+		vector toSampled;
+		if (!aiWorld.SampleNavmeshPosition(targetPos, PHM_Constants.CLIMB_SAMPLE_RADIUS, m_PHM_LadderFilter, toSampled))
+			return false;
+
+		//! Reachable WITHOUT a ladder? Then vanilla pathing handles it (stairs,
+		//! ramps) and teleporting would be a cheat, not a climb.
+		m_PHM_PathWaypoints.Clear();
+		bool walkFound = aiWorld.FindPath(fromSampled, toSampled, m_PHM_WalkFilter, m_PHM_PathWaypoints);
+		if (walkFound && PathReaches(toSampled))
+			return false;
+
+		//! Ladder-inclusive path must actually reach the target.
+		m_PHM_PathWaypoints.Clear();
+		bool ladderFound = aiWorld.FindPath(fromSampled, toSampled, m_PHM_LadderFilter, m_PHM_PathWaypoints);
+		if (!ladderFound)
+			return false;
+
+		if (!PathReaches(toSampled))
+			return false;
+
+		//! Top of the climb: first waypoint whose height comes within slack of the
+		//! target level. Falls back to the last waypoint.
+		int count = m_PHM_PathWaypoints.Count();
+		if (count == 0)
+			return false;
+
+		vector topPoint = m_PHM_PathWaypoints.Get(count - 1);
+		float topThreshold = targetPos[1] - PHM_Constants.CLIMB_TOP_SLACK;
+		int index;
+		vector waypoint;
+
+		for (index = 0; index < count; index++)
+		{
+			waypoint = m_PHM_PathWaypoints.Get(index);
+			if (waypoint[1] >= topThreshold)
+			{
+				topPoint = waypoint;
+				break;
+			}
+		}
+
+		zombie.SetPosition(topPoint);
+		return true;
+	}
+
+	//! FindPath may return a partial path towards an unreachable goal, so "found"
+	//! alone proves nothing - the LAST waypoint has to come close to the goal.
+	protected bool PathReaches(vector goal)
+	{
+		int count = m_PHM_PathWaypoints.Count();
+		if (count == 0)
+			return false;
+
+		vector last = m_PHM_PathWaypoints.Get(count - 1);
+		float distance = vector.Distance(last, goal);
+		return distance <= PHM_Constants.CLIMB_REACH_EPSILON;
+	}
+
+	//! Built once. Walk filter mirrors Expansion's ground movement set with
+	//! LADDER excluded; the ladder filter moves LADDER into the include set and
+	//! prices it attractively (SetCost LADDER 1.0, expansionpathfilters.c:133).
+	protected bool EnsureClimbFilters()
+	{
+		if (m_PHM_WalkFilter && m_PHM_LadderFilter)
+			return true;
+
+		int walkInclude = PGPolyFlags.WALK | PGPolyFlags.DOOR | PGPolyFlags.INSIDE | PGPolyFlags.DISABLED | PGPolyFlags.UNREACHABLE;
+		int walkExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL | PGPolyFlags.LADDER;
+
+		m_PHM_WalkFilter = new PGFilter();
+		m_PHM_WalkFilter.SetFlags(walkInclude, walkExclude, PGPolyFlags.NONE);
+
+		int ladderInclude = walkInclude | PGPolyFlags.LADDER;
+		int ladderExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL;
+
+		m_PHM_LadderFilter = new PGFilter();
+		m_PHM_LadderFilter.SetFlags(ladderInclude, ladderExclude, PGPolyFlags.NONE);
+		m_PHM_LadderFilter.SetCost(PGAreaType.LADDER, 1.0);
+
+		return true;
 	}
 
 	//! Token bucket, refilled lazily. Capped at one second worth of budget so a

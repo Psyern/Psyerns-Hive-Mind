@@ -19,12 +19,19 @@ modded class ZombieBase
 	protected int m_PHM_Hop;
 	protected int m_PHM_PrevMindState;
 
+	//! Ladder climb bookkeeping. ReadyAt > 0 means the zombie is "climbing"
+	//! (armed, waiting at the base); CooldownUntil throttles repeat climbs.
+	protected float m_PHM_ClimbReadyAt;
+	protected float m_PHM_ClimbCooldownUntil;
+
 	void ZombieBase()
 	{
 		m_PHM_HiveUntil = 0.0;
 		m_PHM_RelayUntil = 0.0;
 		m_PHM_SendReadyAt = 0.0;
 		m_PHM_Hop = 0;
+		m_PHM_ClimbReadyAt = 0.0;
+		m_PHM_ClimbCooldownUntil = 0.0;
 
 		//! Matches vanilla m_LastMindState / m_MindState, which both start at -1.
 		//! 0 would be a value the mind state range never produces.
@@ -159,6 +166,32 @@ modded class ZombieBase
 			return;
 
 		controller.OverrideAlertLevel(false, false, 0, 0.0);
+	}
+
+	bool PHM_ClimbOnCooldown(float now)
+	{
+		return now < m_PHM_ClimbCooldownUntil;
+	}
+
+	float PHM_GetClimbReadyAt()
+	{
+		return m_PHM_ClimbReadyAt;
+	}
+
+	void PHM_ArmClimb(float readyAt)
+	{
+		m_PHM_ClimbReadyAt = readyAt;
+	}
+
+	void PHM_DisarmClimb()
+	{
+		m_PHM_ClimbReadyAt = 0.0;
+	}
+
+	void PHM_FinishClimb(float cooldownUntil)
+	{
+		m_PHM_ClimbReadyAt = 0.0;
+		m_PHM_ClimbCooldownUntil = cooldownUntil;
 	}
 
 	//! Seconds of vision boost left. Debug map only.
