@@ -200,6 +200,20 @@ modded class ZombieBase
 		m_PHM_ClimbCooldownUntil = cooldownUntil;
 	}
 
+	//! Diagnosis only: readable alert state of this infected, so the RPT shows
+	//! whether the experimental override actually sticks.
+	string PHM_GetAlertDebug()
+	{
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return "noctrl";
+
+		int level = controller.GetAlertLevel();
+		float inLevel = controller.GetAlertInLevel();
+		bool alerted = controller.IsAlerted();
+		return "lvl=" + level.ToString() + " in=" + inLevel.ToString() + " alerted=" + alerted.ToString();
+	}
+
 	bool PHM_DoorOnCooldown(float now)
 	{
 		return now < m_PHM_DoorCooldownUntil;

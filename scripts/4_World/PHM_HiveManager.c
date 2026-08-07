@@ -50,6 +50,18 @@ class PHM_HiveManager
 	protected ref array<ref RaycastRVResult> m_PHM_RayResults;
 	protected ref array<Object> m_PHM_RayExcluded;
 
+	//! The player of the last successful broadcast, kept as a WEAK reference (the
+	//! world owns the entity). Fallback target for the refresher in case reading
+	//! the input controller from timer context yields nothing - the broadcast
+	//! path provably had this player in hand.
+	protected PlayerBase m_PHM_SeenPlayer;
+	protected float m_PHM_SeenPlayerUntil;
+
+	//! Rotating cursors so the per-tick climb/door slots move across the marked
+	//! set instead of being permanently consumed by the first array entries.
+	protected int m_PHM_ClimbCursor;
+	protected int m_PHM_DoorCursor;
+
 	void PHM_HiveManager()
 	{
 		m_PHM_Marked = new array<ZombieBase>;
@@ -69,6 +81,10 @@ class PHM_HiveManager
 		m_PHM_PathWaypoints = new array<vector>;
 		m_PHM_RayResults = new array<ref RaycastRVResult>;
 		m_PHM_RayExcluded = new array<Object>;
+
+		m_PHM_SeenPlayerUntil = 0.0;
+		m_PHM_ClimbCursor = 0;
+		m_PHM_DoorCursor = 0;
 	}
 
 	static PHM_HiveManager GetInstance()
@@ -184,6 +200,11 @@ class PHM_HiveManager
 		//! the hive knows where you were spotted, not where you went.
 		m_PHM_LastSeenPos = seenPlayer.GetPosition();
 		m_PHM_LastSeenUntil = now + settings.BoostDurationSeconds;
+
+		//! Weak player reference for the refresher's fallback target resolution.
+		m_PHM_SeenPlayer = seenPlayer;
+		m_PHM_SeenPlayerUntil = now + settings.BoostDurationSeconds;
+
 		StartNoiseRefresh(settings);
 
 		if (m_PHM_Recorder)
@@ -278,7 +299,40 @@ class PHM_HiveManager
 
 		float now = g_Game.GetTickTime();
 
+		//! Primary: poll the marked set's input controllers. Fallback: the player
+		//! the last broadcast provably had in hand, while the pursuit window is
+		//! open. The telemetry line below records which source won - that is the
+		//! datum that decides whether controller reads work from timer context.
+		string seenSource = "none";
 		PlayerBase seenPlayer = FindActivelySeenPlayer();
+		if (seenPlayer)
+		{
+			seenSource = "controller";
+		}
+		else
+		{
+			if (m_PHM_SeenPlayer && now < m_PHM_SeenPlayerUntil)
+			{
+				if (m_PHM_SeenPlayer.IsAlive() && m_PHM_SeenPlayer.CanBeTargetedByAI(null))
+				{
+					seenPlayer = m_PHM_SeenPlayer;
+					seenSource = "cache";
+				}
+			}
+		}
+
+		if (settings.LogBroadcasts)
+		{
+			string alertInfo = "none";
+			ZombieBase firstMarked = m_PHM_Marked.Get(0);
+			if (firstMarked)
+				alertInfo = firstMarked.PHM_GetAlertDebug();
+
+			string tick = "refresher: marked=" + m_PHM_Marked.Count().ToString();
+			tick = tick + " seen=" + seenSource;
+			tick = tick + " alert[0]: " + alertInfo;
+			PHM_Logger.Debug(tick);
+		}
 
 		if (settings.LiveTrackWhileSeen && seenPlayer)
 		{
@@ -343,14 +397,26 @@ class PHM_HiveManager
 		vector targetPos = target.GetPosition();
 
 		int processed = 0;
+		int eligible = 0;
+		int armedNow = 0;
+		int waiting = 0;
+		int tried = 0;
+		int climbed = 0;
+
 		int count = m_PHM_Marked.Count();
+		int step;
 		int index;
 		ZombieBase zombie;
 
-		for (index = 0; index < count; index++)
+		//! Rotating start index: without it the per-tick slots are permanently
+		//! consumed by the first array entries and the zombies actually standing
+		//! at the ladder never get evaluated.
+		for (step = 0; step < count; step++)
 		{
 			if (processed >= settings.ClimbersPerTick)
 				break;
+
+			index = (m_PHM_ClimbCursor + step) % count;
 
 			zombie = m_PHM_Marked.Get(index);
 			if (!zombie)
@@ -384,6 +450,7 @@ class PHM_HiveManager
 			}
 
 			processed = processed + 1;
+			eligible = eligible + 1;
 
 			float readyAt = zombie.PHM_GetClimbReadyAt();
 			if (readyAt <= 0.0)
@@ -391,15 +458,22 @@ class PHM_HiveManager
 				//! First eligible sighting: start the simulated climb delay. The
 				//! path checks only run once the delay has elapsed.
 				zombie.PHM_ArmClimb(now + settings.ClimbDurationSeconds);
+				armedNow = armedNow + 1;
 				continue;
 			}
 
 			if (now < readyAt)
+			{
+				waiting = waiting + 1;
 				continue;
+			}
+
+			tried = tried + 1;
 
 			if (TryClimb(aiWorld, zombie, zombiePos, targetPos, settings))
 			{
 				zombie.PHM_FinishClimb(now + settings.ClimbCooldownSeconds);
+				climbed = climbed + 1;
 
 				if (settings.LogBroadcasts)
 				{
@@ -414,36 +488,65 @@ class PHM_HiveManager
 				zombie.PHM_DisarmClimb();
 			}
 		}
+
+		m_PHM_ClimbCursor = m_PHM_ClimbCursor + 1;
+
+		if (settings.LogBroadcasts && eligible > 0)
+		{
+			string climbTick = "climb tick: eligible=" + eligible.ToString();
+			climbTick = climbTick + " armed=" + armedNow.ToString();
+			climbTick = climbTick + " waiting=" + waiting.ToString();
+			climbTick = climbTick + " tried=" + tried.ToString();
+			climbTick = climbTick + " ok=" + climbed.ToString();
+			PHM_Logger.Debug(climbTick);
+		}
 	}
 
-	//! Returns true only when the climb actually happened.
+	//! Returns true only when the climb actually happened. Every refusal logs its
+	//! gate (LogBroadcasts) - that line is what turns "nothing happened" into a
+	//! diagnosis.
 	protected bool TryClimb(AIWorld aiWorld, ZombieBase zombie, vector zombiePos, vector targetPos, PHM_Settings settings)
 	{
 		vector fromSampled;
 		if (!aiWorld.SampleNavmeshPosition(zombiePos, PHM_Constants.CLIMB_SAMPLE_RADIUS, m_PHM_LadderFilter, fromSampled))
+		{
+			ClimbRefused(settings, "sampleFrom failed");
 			return false;
+		}
 
 		//! Target must sample onto navmesh too - a rooftop without navmesh would
 		//! leave the zombie unable to act up there, so it must not climb at all.
 		vector toSampled;
 		if (!aiWorld.SampleNavmeshPosition(targetPos, PHM_Constants.CLIMB_SAMPLE_RADIUS, m_PHM_LadderFilter, toSampled))
+		{
+			ClimbRefused(settings, "sampleTo failed (kein Navmesh am Ziel)");
 			return false;
+		}
 
 		//! Reachable WITHOUT a ladder? Then vanilla pathing handles it (stairs,
 		//! ramps) and teleporting would be a cheat, not a climb.
 		m_PHM_PathWaypoints.Clear();
 		bool walkFound = aiWorld.FindPath(fromSampled, toSampled, m_PHM_WalkFilter, m_PHM_PathWaypoints);
 		if (walkFound && PathReaches(toSampled))
+		{
+			ClimbRefused(settings, "walk path reaches target (kein Klettern noetig)");
 			return false;
+		}
 
 		//! Ladder-inclusive path must actually reach the target.
 		m_PHM_PathWaypoints.Clear();
 		bool ladderFound = aiWorld.FindPath(fromSampled, toSampled, m_PHM_LadderFilter, m_PHM_PathWaypoints);
 		if (!ladderFound)
+		{
+			ClimbRefused(settings, "ladder FindPath false");
 			return false;
+		}
 
 		if (!PathReaches(toSampled))
+		{
+			ClimbRefused(settings, "ladder path does not reach target");
 			return false;
+		}
 
 		//! Top of the climb: first waypoint whose height comes within slack of the
 		//! target level. Falls back to the last waypoint.
@@ -470,6 +573,14 @@ class PHM_HiveManager
 		return true;
 	}
 
+	protected void ClimbRefused(PHM_Settings settings, string reason)
+	{
+		if (!settings.LogBroadcasts)
+			return;
+
+		PHM_Logger.Debug("climb refused: " + reason);
+	}
+
 	//! FindPath may return a partial path towards an unreachable goal, so "found"
 	//! alone proves nothing - the LAST waypoint has to come close to the goal.
 	protected bool PathReaches(vector goal)
@@ -493,14 +604,21 @@ class PHM_HiveManager
 		vector targetPos = target.GetPosition();
 
 		int processed = 0;
+		int eligible = 0;
+		int tried = 0;
+		int opened = 0;
+
 		int count = m_PHM_Marked.Count();
+		int step;
 		int index;
 		ZombieBase zombie;
 
-		for (index = 0; index < count; index++)
+		for (step = 0; step < count; step++)
 		{
 			if (processed >= settings.DoorsPerTick)
 				break;
+
+			index = (m_PHM_DoorCursor + step) % count;
 
 			zombie = m_PHM_Marked.Get(index);
 			if (!zombie)
@@ -527,6 +645,7 @@ class PHM_HiveManager
 			}
 
 			processed = processed + 1;
+			eligible = eligible + 1;
 
 			float readyAt = zombie.PHM_GetDoorReadyAt();
 			if (readyAt <= 0.0)
@@ -538,10 +657,27 @@ class PHM_HiveManager
 			if (now < readyAt)
 				continue;
 
+			tried = tried + 1;
+
 			if (TryOpenDoor(zombie, zombiePos, targetPos, settings))
+			{
 				zombie.PHM_FinishDoor(now + settings.DoorCooldownSeconds);
+				opened = opened + 1;
+			}
 			else
+			{
 				zombie.PHM_DisarmDoor();
+			}
+		}
+
+		m_PHM_DoorCursor = m_PHM_DoorCursor + 1;
+
+		if (settings.LogBroadcasts && eligible > 0)
+		{
+			string doorTick = "door tick: eligible=" + eligible.ToString();
+			doorTick = doorTick + " tried=" + tried.ToString();
+			doorTick = doorTick + " ok=" + opened.ToString();
+			PHM_Logger.Debug(doorTick);
 		}
 	}
 
@@ -576,7 +712,12 @@ class PHM_HiveManager
 		m_PHM_RayExcluded.Insert(zombie);
 
 		if (!DayZPhysics.RaycastRVProxy(params, m_PHM_RayResults, m_PHM_RayExcluded))
+		{
+			if (settings.LogBroadcasts)
+				PHM_Logger.Debug("door refused: raycast hit nothing");
+
 			return false;
+		}
 
 		int count = m_PHM_RayResults.Count();
 		int index;
@@ -615,6 +756,9 @@ class PHM_HiveManager
 
 			return true;
 		}
+
+		if (settings.LogBroadcasts)
+			PHM_Logger.Debug("door refused: " + count.ToString() + " ray hits, none was an openable unlocked door");
 
 		return false;
 	}
