@@ -39,6 +39,13 @@ modded class ZombieBase
 	//! Also the flag that guarantees the overrides get released exactly once.
 	protected bool m_PHM_Driving;
 
+	//! True while the step 0 motor probe owns this infected outright: its native
+	//! brain is suspended with AIAgent.SetKeepInIdle(true) (the same possession
+	//! vanilla's own tool performs, PluginDayZInfectedDebug.c:368) and PHM_Probe
+	//! writes the input controller instead. Owned by PHM_Probe via
+	//! PHM_SetProbeActive - nothing else in this file may set it.
+	protected bool m_PHM_ProbeActive;
+
 	void ZombieBase()
 	{
 		m_PHM_HiveUntil = 0.0;
@@ -52,6 +59,7 @@ modded class ZombieBase
 		m_PHM_PathIndex = 0;
 		m_PHM_RepathAt = 0.0;
 		m_PHM_Driving = false;
+		m_PHM_ProbeActive = false;
 
 		//! Matches vanilla m_LastMindState / m_MindState, which both start at -1.
 		//! 0 would be a value the mind state range never produces.
@@ -310,7 +318,50 @@ modded class ZombieBase
 	{
 		super.CommandHandler(pDt, pCurrentCommandID, pCurrentCommandFinished);
 
+		//! Possession pre-empts pursuit, and the return is the whole point: the
+		//! probe and PHM_DriveTowards are two writers on ONE input controller
+		//! (both call OverrideMovementSpeed), and a contaminated speed channel is
+		//! exactly the measurement step 0 exists to take cleanly. One plain field
+		//! read for the 99.9% that are never probed - same shape as the pursuit
+		//! gate below.
+		if (m_PHM_ProbeActive)
+		{
+			PHM_Probe probe = PHM_Probe.GetExisting();
+			if (probe)
+			{
+				probe.DriveTick(this, pDt);
+				return;
+			}
+
+			//! Flag set but the singleton is gone. Should be unreachable - the
+			//! probe's own teardown calls ReleaseAll() before dropping itself,
+			//! and that clears this flag - so getting here means the mod side
+			//! state outlived its owner. Clear it rather than keep returning
+			//! forever with nobody left to drive.
+			m_PHM_ProbeActive = false;
+		}
+
 		PHM_PursuitTick(pDt);
+	}
+
+	//! Handover between the two motor channels. Taking the probe means dropping
+	//! pursuit FIRST: PHM_PursuitTick never runs again while the flag is up (the
+	//! branch above returns), so a zombie grabbed mid-pursuit would keep
+	//! m_PHM_Driving true and its OverrideHeading/OverrideTurnSpeed pinned from
+	//! the last pursuit tick, silently fighting every value the probe writes.
+	//! PHM_StopDriving is idempotent, so this costs one field read when the
+	//! zombie was not driving.
+	void PHM_SetProbeActive(bool active)
+	{
+		if (active)
+			PHM_StopDriving();
+
+		m_PHM_ProbeActive = active;
+	}
+
+	bool PHM_IsProbeActive()
+	{
+		return m_PHM_ProbeActive;
 	}
 
 	//! Drives a marked infected along a navmesh route towards the hive's pursuit
@@ -706,6 +757,22 @@ modded class ZombieBase
 
 	protected void PHM_Unregister()
 	{
+		//! Possession is a pinned state, so the handle has to die with the entity.
+		//! Cleared before the call so the ReleaseAll pass sees a zombie that is
+		//! already disowned and cannot loop back in here. ReleaseAll rather than a
+		//! per-zombie drop because the probe's frozen surface has no drop-one
+		//! entry point, and step 0 possesses one infected at a time - so when THIS
+		//! zombie is the subject, all is exactly one. Gated on the flag: an
+		//! ordinary infected being deleted must not cancel somebody else's probe.
+		if (m_PHM_ProbeActive)
+		{
+			m_PHM_ProbeActive = false;
+
+			PHM_Probe probe = PHM_Probe.GetExisting();
+			if (probe)
+				probe.ReleaseAll();
+		}
+
 		PHM_HiveManager.PHM_ForgetZombie(this);
 
 		if (!s_PHM_Registry)

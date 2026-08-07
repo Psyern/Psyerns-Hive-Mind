@@ -14,7 +14,10 @@ class PHM_Constants
 	//! DoorMaxDistance, DoorsPerTick
 	//! v5: EnablePursuit, PursuitRepathSeconds, PursuitWaypointRadius,
 	//! PursuitSpeed, PursuitMaxDistance
-	static const int SETTINGS_VERSION = 5;
+	//! v6: EnableMotorProbe, ProbeSearchRadius, ProbeDurationSeconds,
+	//! ProbeCooldownSeconds, ProbeSpeed, ProbeBearing, ProbeTurnType,
+	//! ProbeTurnMode, ProbeTurnThresholdDeg
+	static const int SETTINGS_VERSION = 6;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
@@ -172,6 +175,58 @@ class PHM_Constants
 	//! A repath that found nothing is retried on this (longer) delay instead of
 	//! hammering FindPath every tick for a target that has no route at all.
 	static const float PURSUIT_FAILED_REPATH_SECONDS = 5.0;
+
+	//! Step 0 motor probe. One infected is possessed
+	//! (PluginDayZInfectedDebug.c:368 SetKeepInIdle(true)) and driven at a fixed
+	//! bearing so the four unknowns in the v2 design can be read off the RPT.
+	//!
+	//! This block deliberately does NOT reuse the pursuit bounds above. The
+	//! PURSUIT_SPEED_MIN/MAX pair and its comment assert the
+	//! DayZInfectedConstantsMovement scale (IDLE 0 / WALK 1 / RUN 2 / SPRINT 3,
+	//! DayZInfected.c:20-25) as fact; the probe exists to TEST that assertion
+	//! against the m/s reading, so its own bounds must be wider than either
+	//! candidate scale. Do not "unify" the two.
+	static const float PROBE_RADIUS_MIN = 5.0;
+	static const float PROBE_RADIUS_MAX = 100.0;
+
+	static const float PROBE_DURATION_MIN = 1.0;
+	static const float PROBE_DURATION_MAX = 120.0;
+
+	static const float PROBE_COOLDOWN_MIN = 5.0;
+	static const float PROBE_COOLDOWN_MAX = 600.0;
+
+	//! 0..6, not 1..3. Vanilla passes OverrideMovementSpeed a raw float straight
+	//! off a text field (PluginDayZInfectedDebug.c:385), so nothing in script
+	//! bounds it. 6 covers a plausible m/s sprint as well as the whole 0..3 enum.
+	static const float PROBE_SPEED_MIN = 0.0;
+	static const float PROBE_SPEED_MAX = 6.0;
+
+	//! Bearing in the same degree space as GetOrientation()[0]. PROBE_BEARING_MIN
+	//! is the sentinel "keep the yaw captured at possession start" rather than a
+	//! real angle, so Validate() folds every negative value onto it instead of
+	//! clamping into a wrap-around no operator would expect.
+	static const float PROBE_BEARING_MIN = -1.0;
+	static const float PROBE_BEARING_MAX = 360.0;
+
+	//! StartTurn's second parameter is declared pSpeedType, not pTurnType
+	//! (DayZInfected.c:40), and vanilla fills it from a combo box whose entries
+	//! live in the debug .layout, not in script (PluginDayZInfectedDebug.c:396).
+	//! Which values are legal and what they select is one of the things this
+	//! probe measures, hence a configurable ordinal rather than a named enum.
+	static const int PROBE_TURN_TYPE_MIN = 0;
+	static const int PROBE_TURN_TYPE_MAX = 3;
+
+	//! 0 = hand StartTurn the absolute yaw, 1 = hand it the relative delta.
+	//! Vanilla reads its direction off a free text field, so neither reading can
+	//! be ruled out from source. The probe sweeps both.
+	static const int PROBE_TURN_MODE_MIN = 0;
+	static const int PROBE_TURN_MODE_MAX = 1;
+
+	//! Angular error at which a turn is issued. Turning is a discrete command,
+	//! not a continuous channel, so without a deadband the probe would re-issue
+	//! StartTurn on every one of the ~50 command ticks per second.
+	static const float PROBE_TURN_THRESHOLD_MIN = 1.0;
+	static const float PROBE_TURN_THRESHOLD_MAX = 180.0;
 
 	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
 	//! through the CfgMods "inputs" property.

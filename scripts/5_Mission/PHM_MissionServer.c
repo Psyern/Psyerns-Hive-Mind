@@ -10,6 +10,7 @@
 modded class MissionServer
 {
 	protected bool m_PHM_DebugTimerActive;
+	protected bool m_PHM_ProbeTimerActive;
 	protected ref array<string> m_PHM_WarnedIds;
 
 	override void OnInit()
@@ -56,6 +57,21 @@ modded class MissionServer
 		if (!settings.EnablePursuit)
 			PHM_Logger.Notice("Pursuit is OFF - marks only boost vision range (needs line of sight) and emit a noise ping. Marked infected beyond both ranges will not move.");
 
+		line = "EnableMotorProbe=" + settings.EnableMotorProbe.ToString();
+		line = line + " ProbeSpeed=" + settings.ProbeSpeed.ToString();
+		line = line + " ProbeTurnMode=" + settings.ProbeTurnMode.ToString();
+		line = line + " ProbeTurnType=" + settings.ProbeTurnType.ToString();
+		line = line + " ProbeDurationSeconds=" + settings.ProbeDurationSeconds.ToString();
+		PHM_Logger.Notice(line);
+
+		//! Warn, not Notice: this is the one setting in the file that takes an
+		//! infected away from the engine entirely. Possession suspends the native
+		//! brain (AIAgent.SetKeepInIdle(true)) and is a PINNED state, so an
+		//! operator who left it on by accident must be able to see that in the RPT
+		//! without reading the settings dump line above.
+		if (settings.EnableMotorProbe)
+			PHM_Logger.Warn("MOTOR PROBE IS ON. One nearby infected will be POSSESSED periodically - its native AI is suspended and this mod drives it instead. Diagnostic for build step 0 only, not gameplay. Turn it off on a live server.");
+
 		PHM_Logger.Notice("Settings file: " + PHM_Constants.SETTINGS_FILE);
 
 		DayZGame dayzGame = DayZGame.Cast(g_Game);
@@ -63,6 +79,13 @@ modded class MissionServer
 			dayzGame.Event_OnRPC.Insert(PHM_OnRPC);
 
 		PHM_StartDebugTimer(settings);
+
+		//! Started unconditionally, NOT gated on EnableMotorProbe. The settings
+		//! holder hot reloads (PHM_SettingsHolder.ReloadIfDue), so the switch can
+		//! be flipped either way without a restart - and the OFF path of the tick
+		//! is what releases an infected that was mid-possession when it flipped.
+		//! The tick itself costs one settings read while the probe is off.
+		PHM_StartProbeTimer();
 	}
 
 	void ~MissionServer()
@@ -74,11 +97,23 @@ modded class MissionServer
 		if (dayzGame)
 			dayzGame.Event_OnRPC.Remove(PHM_OnRPC);
 
-		if (!m_PHM_DebugTimerActive)
-			return;
+		//! Release BEFORE any of the timer bookkeeping below, because every branch
+		//! down there can take an early return. Possession is a pinned state: an
+		//! infected still held in SetKeepInIdle(true) when the mission tears down
+		//! stays paralysed for the rest of its life. GetExisting on purpose - the
+		//! destructor must never construct the probe.
+		PHM_Probe probe = PHM_Probe.GetExisting();
+		if (probe)
+			probe.ReleaseAll();
 
 		ScriptCallQueue queue = g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM);
-		if (queue)
+		if (!queue)
+			return;
+
+		if (m_PHM_ProbeTimerActive)
+			queue.Remove(PHM_ProbeTick);
+
+		if (m_PHM_DebugTimerActive)
 			queue.Remove(PHM_PushDebugSnapshots);
 	}
 
@@ -99,6 +134,67 @@ modded class MissionServer
 
 		queue.CallLater(PHM_PushDebugSnapshots, interval, true);
 		m_PHM_DebugTimerActive = true;
+	}
+
+	//! Same shape and same queue as PHM_StartDebugTimer above. The 1 s period is
+	//! fixed and not a setting: ProbeDurationSeconds / ProbeCooldownSeconds are
+	//! compared against g_Game.GetTickTime() inside the probe, so the timer only
+	//! decides how coarsely those deadlines are noticed. The per-tick DRIVING runs
+	//! at command-tick rate inside the zombie, not here.
+	protected void PHM_StartProbeTimer()
+	{
+		if (!g_Game)
+			return;
+
+		ScriptCallQueue queue = g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM);
+		if (!queue)
+			return;
+
+		queue.CallLater(PHM_ProbeTick, 1000, true);
+		m_PHM_ProbeTimerActive = true;
+	}
+
+	protected void PHM_ProbeTick()
+	{
+		if (!g_Game)
+			return;
+
+		if (!g_Game.IsDedicatedServer())
+			return;
+
+		//! The ONLY other call site is PHM_HiveManager.c:139, inside Broadcast() -
+		//! which fires only when a marked infected crosses the mind state threshold
+		//! on a player, and therefore never fires at all in the clean-room setup
+		//! step 0 has to be run in (Enabled=false). Without this line OnInit's Load()
+		//! would be the only one that ever runs: the config-flip release path below
+		//! would be dead, and every sweep configuration - two speed scales, two turn
+		//! modes, several turn types - would need a full server restart instead of a
+		//! JSON edit. An operator editing HiveMind.json and waiting would conclude
+		//! the probe is broken.
+		PHM_SettingsHolder.ReloadIfDue();
+
+		PHM_Settings settings = PHM_SettingsHolder.Get();
+		if (!settings)
+			return;
+
+		if (!settings.EnableMotorProbe)
+		{
+			//! GetExisting, so a server that never enables the probe never even
+			//! constructs it. But the off path still has to release: if the admin
+			//! hot reloaded the switch to false while an infected was possessed,
+			//! this tick is the last code that will ever look at it.
+			PHM_Probe existing = PHM_Probe.GetExisting();
+			if (existing)
+				existing.ReleaseAll();
+
+			return;
+		}
+
+		PHM_Probe probe = PHM_Probe.GetInstance();
+		if (!probe)
+			return;
+
+		probe.OnServerTick();
 	}
 
 	//! Server side RPC receiver. Only handles the subscribe request.

@@ -54,6 +54,16 @@ class PHM_Settings
 	float PursuitSpeed;
 	float PursuitMaxDistance;
 
+	bool EnableMotorProbe;
+	float ProbeSearchRadius;
+	float ProbeDurationSeconds;
+	float ProbeCooldownSeconds;
+	float ProbeSpeed;
+	float ProbeBearing;
+	int ProbeTurnType;
+	int ProbeTurnMode;
+	float ProbeTurnThresholdDeg;
+
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
 
@@ -162,6 +172,35 @@ class PHM_Settings
 
 		PursuitMaxDistance = 300.0;
 
+		//! Step 0 motor probe. Diagnostic only: it periodically POSSESSES one
+		//! nearby infected (AIAgent.SetKeepInIdle(true), the same suspension
+		//! PluginDayZInfectedDebug.c:368 uses) and drives it at a fixed bearing so
+		//! the RPT can answer the four open unknowns - speed scale, StartTurn
+		//! semantics, whether GetTargetEntity survives, whether animation holds.
+		//!
+		//! Off by default and it must stay that way on a live server. Possession
+		//! is a PINNED state: a release that fails leaves that infected paralysed
+		//! until it despawns, which is worse than the measurement being missing.
+		EnableMotorProbe = false;
+
+		ProbeSearchRadius = 30.0;
+		ProbeDurationSeconds = 15.0;
+		ProbeCooldownSeconds = 30.0;
+
+		//! 2 on the assumed DayZInfectedConstantsMovement scale is RUN, and on the
+		//! m/s reading it is a brisk walk - either way a legible gait, which is
+		//! exactly what makes the first run tell the two scales apart.
+		ProbeSpeed = 2.0;
+
+		//! Negative = keep whatever yaw the infected had at possession start, so
+		//! the very first run measures translation without also introducing the
+		//! unverified StartTurn semantics as a second variable.
+		ProbeBearing = -1.0;
+
+		ProbeTurnType = 0;
+		ProbeTurnMode = 0;
+		ProbeTurnThresholdDeg = 15.0;
+
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
 
@@ -234,6 +273,23 @@ class PHM_Settings
 		PursuitWaypointRadius = Math.Clamp(PursuitWaypointRadius, PHM_Constants.PURSUIT_WAYPOINT_MIN, PHM_Constants.PURSUIT_WAYPOINT_MAX);
 		PursuitSpeed = Math.Clamp(PursuitSpeed, PHM_Constants.PURSUIT_SPEED_MIN, PHM_Constants.PURSUIT_SPEED_MAX);
 		PursuitMaxDistance = Math.Clamp(PursuitMaxDistance, PHM_Constants.PURSUIT_DIST_MIN, PHM_Constants.PURSUIT_DIST_MAX);
+
+		ProbeSearchRadius = Math.Clamp(ProbeSearchRadius, PHM_Constants.PROBE_RADIUS_MIN, PHM_Constants.PROBE_RADIUS_MAX);
+		ProbeDurationSeconds = Math.Clamp(ProbeDurationSeconds, PHM_Constants.PROBE_DURATION_MIN, PHM_Constants.PROBE_DURATION_MAX);
+		ProbeCooldownSeconds = Math.Clamp(ProbeCooldownSeconds, PHM_Constants.PROBE_COOLDOWN_MIN, PHM_Constants.PROBE_COOLDOWN_MAX);
+		ProbeSpeed = Math.Clamp(ProbeSpeed, PHM_Constants.PROBE_SPEED_MIN, PHM_Constants.PROBE_SPEED_MAX);
+		ProbeTurnType = Math.Clamp(ProbeTurnType, PHM_Constants.PROBE_TURN_TYPE_MIN, PHM_Constants.PROBE_TURN_TYPE_MAX);
+		ProbeTurnMode = Math.Clamp(ProbeTurnMode, PHM_Constants.PROBE_TURN_MODE_MIN, PHM_Constants.PROBE_TURN_MODE_MAX);
+		ProbeTurnThresholdDeg = Math.Clamp(ProbeTurnThresholdDeg, PHM_Constants.PROBE_TURN_THRESHOLD_MIN, PHM_Constants.PROBE_TURN_THRESHOLD_MAX);
+
+		//! Every negative bearing collapses onto the single sentinel BEFORE the
+		//! clamp, so -0.3 and -999 both mean "keep the captured yaw" instead of
+		//! one of them surviving as a near-zero angle the operator never asked
+		//! for. A plain Math.Clamp alone could not express that.
+		if (ProbeBearing < 0.0)
+			ProbeBearing = PHM_Constants.PROBE_BEARING_MIN;
+
+		ProbeBearing = Math.Clamp(ProbeBearing, PHM_Constants.PROBE_BEARING_MIN, PHM_Constants.PROBE_BEARING_MAX);
 
 		SettingsReloadSeconds = Math.Clamp(SettingsReloadSeconds, PHM_Constants.RELOAD_SECONDS_MIN, PHM_Constants.RELOAD_SECONDS_MAX);
 
