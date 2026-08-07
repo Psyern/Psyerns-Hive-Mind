@@ -48,6 +48,12 @@ class PHM_Settings
 	float DoorMaxDistance;
 	int DoorsPerTick;
 
+	bool EnablePursuit;
+	float PursuitRepathSeconds;
+	float PursuitWaypointRadius;
+	float PursuitSpeed;
+	float PursuitMaxDistance;
+
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
 
@@ -135,6 +141,27 @@ class PHM_Settings
 		DoorMaxDistance = 20.0;
 		DoorsPerTick = 2;
 
+		//! THE channel that actually moves a horde. Everything else the mod does
+		//! is perception: GetMaxVisionRangeModifier only scales sight RANGE and
+		//! still needs line of sight, and AddNoiseTarget is an engine broadcast
+		//! whose reach comes from the noise config, not from ShareRadius. A
+		//! marked infected 200 m away with no line of sight therefore had no way
+		//! to learn where to walk. This drives it along a navmesh path instead.
+		//!
+		//! Off by default: OverrideHeading/OverrideMovementSpeed have zero
+		//! vanilla call sites for INFECTED (only DayZAnimal.c:546-551 drives a
+		//! creature this way), so this is proven-by-signature, not by precedent.
+		EnablePursuit = false;
+
+		PursuitRepathSeconds = 3.0;
+		PursuitWaypointRadius = 1.5;
+
+		//! 2 = RUN on the DayZInfectedConstantsMovement scale. Deliberately not
+		//! SPRINT: a sprinting horde arriving from 300 m is not survivable.
+		PursuitSpeed = 2.0;
+
+		PursuitMaxDistance = 300.0;
+
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
 
@@ -202,6 +229,11 @@ class PHM_Settings
 		DoorCooldownSeconds = Math.Clamp(DoorCooldownSeconds, PHM_Constants.DOOR_COOLDOWN_MIN, PHM_Constants.DOOR_COOLDOWN_MAX);
 		DoorMaxDistance = Math.Clamp(DoorMaxDistance, PHM_Constants.DOOR_DIST_MIN, PHM_Constants.DOOR_DIST_MAX);
 		DoorsPerTick = Math.Clamp(DoorsPerTick, PHM_Constants.DOORS_PER_TICK_MIN, PHM_Constants.DOORS_PER_TICK_MAX);
+
+		PursuitRepathSeconds = Math.Clamp(PursuitRepathSeconds, PHM_Constants.PURSUIT_REPATH_MIN, PHM_Constants.PURSUIT_REPATH_MAX);
+		PursuitWaypointRadius = Math.Clamp(PursuitWaypointRadius, PHM_Constants.PURSUIT_WAYPOINT_MIN, PHM_Constants.PURSUIT_WAYPOINT_MAX);
+		PursuitSpeed = Math.Clamp(PursuitSpeed, PHM_Constants.PURSUIT_SPEED_MIN, PHM_Constants.PURSUIT_SPEED_MAX);
+		PursuitMaxDistance = Math.Clamp(PursuitMaxDistance, PHM_Constants.PURSUIT_DIST_MIN, PHM_Constants.PURSUIT_DIST_MAX);
 
 		SettingsReloadSeconds = Math.Clamp(SettingsReloadSeconds, PHM_Constants.RELOAD_SECONDS_MIN, PHM_Constants.RELOAD_SECONDS_MAX);
 

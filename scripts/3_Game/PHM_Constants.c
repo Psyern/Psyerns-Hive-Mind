@@ -12,7 +12,9 @@ class PHM_Constants
 	//! ClimbDurationSeconds, ClimbCooldownSeconds, ClimbersPerTick
 	//! v4: EnableDoorOpening, DoorOpenDelaySeconds, DoorCooldownSeconds,
 	//! DoorMaxDistance, DoorsPerTick
-	static const int SETTINGS_VERSION = 4;
+	//! v5: EnablePursuit, PursuitRepathSeconds, PursuitWaypointRadius,
+	//! PursuitSpeed, PursuitMaxDistance
+	static const int SETTINGS_VERSION = 5;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
@@ -132,11 +134,44 @@ class PHM_Constants
 	static const int DOORS_PER_TICK_MIN = 1;
 	static const int DOORS_PER_TICK_MAX = 10;
 
-	//! Ray from the zombie's chest towards the target: a door only counts when it
-	//! is directly in the way at arm's length.
+	//! Ray from the zombie's chest along its OWN facing: a door only counts when
+	//! it is directly in the way at arm's length. Aiming at the player instead
+	//! made the ray miss every door that was not coincidentally on the straight
+	//! line zombie->player, which is why 27 of 27 attempts refused in testing.
+	//! Expansion aims the same way (eAIBase.c:11545: p1 = position + direction * 1.5).
 	static const float DOOR_RAY_LENGTH = 2.5;
 	static const float DOOR_RAY_HEIGHT = 1.2;
-	static const float DOOR_RAY_RADIUS = 0.3;
+	static const float DOOR_RAY_RADIUS = 0.5;
+
+	//! Navmesh pursuit. Speeds use the DayZInfectedConstantsMovement scale
+	//! (IDLE 0, WALK 1, RUN 2, SPRINT 3) - the same scale HandleMove reads back
+	//! from GetMovementSpeed() (ZombieBase.c:299) and the same one DayZAnimal
+	//! feeds to OverrideMovementSpeed (DayZAnimal.c:549).
+	static const float PURSUIT_REPATH_MIN = 0.5;
+	static const float PURSUIT_REPATH_MAX = 30.0;
+
+	static const float PURSUIT_WAYPOINT_MIN = 0.5;
+	static const float PURSUIT_WAYPOINT_MAX = 10.0;
+
+	static const float PURSUIT_SPEED_MIN = 1.0;
+	static const float PURSUIT_SPEED_MAX = 3.0;
+
+	static const float PURSUIT_DIST_MIN = 10.0;
+	static const float PURSUIT_DIST_MAX = 2000.0;
+
+	//! How far a position may sit off the navmesh and still snap onto it.
+	static const float PURSUIT_SAMPLE_RADIUS = 5.0;
+
+	//! Hard cap on stored waypoints per zombie, so the marked set can never hold
+	//! more than MaxSharedZombies * this vectors.
+	static const int PURSUIT_PATH_MAX = 64;
+
+	//! Repath jitter, so 60 marked zombies never recompute in the same tick.
+	static const float PURSUIT_REPATH_JITTER = 1.0;
+
+	//! A repath that found nothing is retried on this (longer) delay instead of
+	//! hammering FindPath every tick for a target that has no route at all.
+	static const float PURSUIT_FAILED_REPATH_SECONDS = 5.0;
 
 	//! Input name as declared in scripts/data/Inputs.xml, which config.cpp binds
 	//! through the CfgMods "inputs" property.

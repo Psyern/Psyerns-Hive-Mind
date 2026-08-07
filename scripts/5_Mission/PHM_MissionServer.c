@@ -47,6 +47,15 @@ modded class MissionServer
 		line = line + " EnableNoisePing=" + settings.EnableNoisePing.ToString();
 		PHM_Logger.Notice(line);
 
+		line = "EnablePursuit=" + settings.EnablePursuit.ToString();
+		line = line + " PursuitSpeed=" + settings.PursuitSpeed.ToString();
+		line = line + " PursuitRepathSeconds=" + settings.PursuitRepathSeconds.ToString();
+		line = line + " PursuitMaxDistance=" + settings.PursuitMaxDistance.ToString();
+		PHM_Logger.Notice(line);
+
+		if (!settings.EnablePursuit)
+			PHM_Logger.Notice("Pursuit is OFF - marks only boost vision range (needs line of sight) and emit a noise ping. Marked infected beyond both ranges will not move.");
+
 		PHM_Logger.Notice("Settings file: " + PHM_Constants.SETTINGS_FILE);
 
 		DayZGame dayzGame = DayZGame.Cast(g_Game);

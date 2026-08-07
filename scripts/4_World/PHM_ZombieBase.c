@@ -28,6 +28,17 @@ modded class ZombieBase
 	protected float m_PHM_DoorReadyAt;
 	protected float m_PHM_DoorCooldownUntil;
 
+	//! Navmesh pursuit state. The waypoint array is allocated lazily on the first
+	//! pursuit, so the overwhelming majority of infected - the ones that are
+	//! never marked - never pay for it.
+	protected ref array<vector> m_PHM_Path;
+	protected int m_PHM_PathIndex;
+	protected float m_PHM_RepathAt;
+
+	//! True while this infected's heading and speed are being written by the mod.
+	//! Also the flag that guarantees the overrides get released exactly once.
+	protected bool m_PHM_Driving;
+
 	void ZombieBase()
 	{
 		m_PHM_HiveUntil = 0.0;
@@ -38,6 +49,9 @@ modded class ZombieBase
 		m_PHM_ClimbCooldownUntil = 0.0;
 		m_PHM_DoorReadyAt = 0.0;
 		m_PHM_DoorCooldownUntil = 0.0;
+		m_PHM_PathIndex = 0;
+		m_PHM_RepathAt = 0.0;
+		m_PHM_Driving = false;
 
 		//! Matches vanilla m_LastMindState / m_MindState, which both start at -1.
 		//! 0 would be a value the mind state range never produces.
@@ -281,6 +295,290 @@ modded class ZombieBase
 		float relayUntil = now + relaySeconds;
 		if (relayUntil > m_PHM_RelayUntil)
 			m_PHM_RelayUntil = relayUntil;
+	}
+
+	//! Per tick entry point for the navmesh pursuit.
+	//!
+	//! CommandHandler, not ModCommandHandlerBefore/Inside/After: those three are
+	//! all skipped whenever an earlier branch of the vanilla handler returns, and
+	//! Before is additionally hijacked outright by DayZExpansion Core for
+	//! lobotomised infected (ZombieBase.c:144-158, returns true without calling
+	//! super). Overriding CommandHandler and calling super FIRST runs regardless
+	//! of which branch super took, and is exactly what Expansion Core itself does
+	//! (DayZExpansion_Core Creatures/Infected/ZombieBase.c:165).
+	override void CommandHandler(float pDt, int pCurrentCommandID, bool pCurrentCommandFinished)
+	{
+		super.CommandHandler(pDt, pCurrentCommandID, pCurrentCommandFinished);
+
+		PHM_PursuitTick(pDt);
+	}
+
+	//! Drives a marked infected along a navmesh route towards the hive's pursuit
+	//! target. This is the only channel in the mod that can actually MOVE an
+	//! infected: the vision multiplier needs line of sight and the noise ping
+	//! reaches only as far as its noise config allows, so without this a mark
+	//! beyond either range was silently inert.
+	protected void PHM_PursuitTick(float pDt)
+	{
+		//! The gate that makes this hook affordable: two plain field reads, no
+		//! call. An infected that was never marked and is not currently being
+		//! driven leaves on this line, every tick, forever.
+		if (!m_PHM_Driving && m_PHM_HiveUntil <= 0.0)
+			return;
+
+		if (!g_Game)
+			return;
+
+		if (!g_Game.IsDedicatedServer())
+			return;
+
+		if (IsSetForDeletion())
+			return;
+
+		if (!IsAlive())
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		float now = g_Game.GetTickTime();
+
+		//! Mark expired - hand the infected back to vanilla untouched.
+		//!
+		//! Checked BEFORE the feature switches on purpose. m_PHM_HiveUntil is the
+		//! cheap gate at the top of this function, and it has to be zeroed on
+		//! expiry or every infected that was EVER marked keeps paying for the
+		//! full chain on every tick for the rest of its life. Putting this behind
+		//! the EnablePursuit check would skip the zeroing entirely on the default
+		//! configuration, where pursuit is off - i.e. exactly where the saving
+		//! matters most. Zero reads as "expired" to PHM_IsHiveAlerted and
+		//! PHM_GetHiveRemaining alike, and PHM_ApplyHiveAlert only ever takes the
+		//! maximum, so a later re-mark is unaffected.
+		if (now >= m_PHM_HiveUntil)
+		{
+			PHM_StopDriving();
+			m_PHM_HiveUntil = 0.0;
+			return;
+		}
+
+		PHM_Settings settings = PHM_SettingsHolder.Get();
+		if (!settings)
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		if (!settings.Enabled)
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		//! Hot reloading the switch off releases every driven infected on its
+		//! next tick, without a restart.
+		if (!settings.EnablePursuit)
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return;
+
+		//! It can see the player by itself now. The vanilla chase is strictly
+		//! better than anything a scripted heading can steer, so release the
+		//! overrides and get out of its way.
+		if (controller.GetTargetEntity())
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		PHM_HiveManager manager = PHM_HiveManager.GetInstance();
+		if (!manager)
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		vector destination;
+		if (!manager.PHM_GetPursuitTarget(now, destination))
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		vector position = GetPosition();
+
+		float distance = vector.Distance(position, destination);
+		if (distance > settings.PursuitMaxDistance)
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		if (!PHM_EnsurePath(manager, now, position, destination, settings))
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		//! Route fully consumed: standing on the last known position. Vanilla
+		//! perception takes over from here, which is the intended hand-off.
+		if (!PHM_AdvanceWaypoint(position, settings))
+		{
+			PHM_StopDriving();
+			return;
+		}
+
+		vector waypoint = m_PHM_Path.Get(m_PHM_PathIndex);
+		PHM_DriveTowards(controller, position, waypoint, pDt, settings);
+	}
+
+	//! Returns true when a usable route exists. Recomputes at most once per
+	//! PursuitRepathSeconds, and backs off harder after a failed search so an
+	//! infected with no route at all cannot call FindPath every tick.
+	protected bool PHM_EnsurePath(PHM_HiveManager manager, float now, vector position, vector destination, PHM_Settings settings)
+	{
+		bool hasRoute = false;
+		if (m_PHM_Path && m_PHM_PathIndex < m_PHM_Path.Count())
+			hasRoute = true;
+
+		if (now < m_PHM_RepathAt)
+			return hasRoute;
+
+		if (!m_PHM_Path)
+			m_PHM_Path = new array<vector>;
+
+		bool found = manager.PHM_FindPursuitPath(position, destination, m_PHM_Path);
+
+		//! Jitter on purpose: 60 marked infected sharing one repath cadence would
+		//! otherwise put 60 FindPath calls into the same frame.
+		float jitter = Math.RandomFloat(0.0, PHM_Constants.PURSUIT_REPATH_JITTER);
+
+		if (!found)
+		{
+			m_PHM_Path.Clear();
+			m_PHM_PathIndex = 0;
+			m_PHM_RepathAt = now + PHM_Constants.PURSUIT_FAILED_REPATH_SECONDS + jitter;
+			return false;
+		}
+
+		m_PHM_PathIndex = 0;
+		m_PHM_RepathAt = now + settings.PursuitRepathSeconds + jitter;
+		return true;
+	}
+
+	//! Skips every waypoint already reached. Returns false once the route is
+	//! exhausted.
+	protected bool PHM_AdvanceWaypoint(vector position, PHM_Settings settings)
+	{
+		if (!m_PHM_Path)
+			return false;
+
+		int count = m_PHM_Path.Count();
+		float radius = settings.PursuitWaypointRadius;
+
+		//! Compared on the ground plane only. FindPath returns the standing
+		//! position as its first waypoint and puts points on stairs and ladders
+		//! at the same XZ as the floor below, so a 3D compare would leave a
+		//! zombie steering at a point directly above its own head.
+		vector flatPosition = Vector(position[0], 0.0, position[2]);
+		vector waypoint;
+		vector flatWaypoint;
+		float distance;
+
+		while (m_PHM_PathIndex < count)
+		{
+			waypoint = m_PHM_Path.Get(m_PHM_PathIndex);
+			flatWaypoint = Vector(waypoint[0], 0.0, waypoint[2]);
+			distance = vector.Distance(flatPosition, flatWaypoint);
+
+			if (distance > radius)
+				return true;
+
+			m_PHM_PathIndex = m_PHM_PathIndex + 1;
+		}
+
+		return false;
+	}
+
+	//! Writes heading and speed into the input controller for this tick.
+	protected void PHM_DriveTowards(DayZInfectedInputController controller, vector position, vector waypoint, float pDt, PHM_Settings settings)
+	{
+		if (pDt <= 0.0)
+			return;
+
+		vector direction = waypoint - position;
+		direction[1] = 0.0;
+
+		if (direction.Length() < 0.01)
+			return;
+
+		//! VectorToAngles()[0] is the yaw in degrees, the same space
+		//! GetOrientation()[0] lives in - and degrees-to-radians is exactly the
+		//! conversion vanilla applies before handing a heading to a script driven
+		//! creature (DayZAnimal.c:465 builds it, :550 converts it).
+		vector angles = direction.VectorToAngles();
+		float headingDeg = Math.NormalizeAngle(angles[0]);
+		float headingRad = headingDeg * Math.DEG2RAD;
+
+		//! Same instant-turn form vanilla uses in that block (DayZAnimal.c:548).
+		float turnSpeed = Math.PI2 / pDt;
+
+		controller.OverrideTurnSpeed(true, turnSpeed);
+		controller.OverrideHeading(true, headingRad);
+		controller.OverrideMovementSpeed(true, settings.PursuitSpeed);
+
+		m_PHM_Driving = true;
+	}
+
+	//! Releases the movement overrides. Idempotent, and called from every exit
+	//! path above - leaving heading and speed pinned would freeze an infected
+	//! permanently, which is far worse than never having driven it at all.
+	void PHM_StopDriving()
+	{
+		if (!m_PHM_Driving)
+			return;
+
+		m_PHM_Driving = false;
+		m_PHM_PathIndex = 0;
+
+		if (m_PHM_Path)
+			m_PHM_Path.Clear();
+
+		if (!g_Game)
+			return;
+
+		if (IsSetForDeletion())
+			return;
+
+		DayZInfectedInputController controller = GetInputController();
+		if (!controller)
+			return;
+
+		//! state=false is the release form; the value argument is ignored.
+		controller.OverrideTurnSpeed(false, 0.0);
+		controller.OverrideHeading(false, 0.0);
+		controller.OverrideMovementSpeed(false, 0.0);
+	}
+
+	bool PHM_IsDriving()
+	{
+		return m_PHM_Driving;
+	}
+
+	//! Diagnosis only: pursuit state of this infected for the RPT telemetry.
+	string PHM_GetPursuitDebug()
+	{
+		int waypoints = 0;
+		if (m_PHM_Path)
+			waypoints = m_PHM_Path.Count();
+
+		string info = "driving=" + m_PHM_Driving.ToString();
+		info = info + " wp=" + m_PHM_PathIndex.ToString() + "/" + waypoints.ToString();
+		return info;
 	}
 
 	override bool HandleMindStateChange(int pCurrentCommandID, DayZInfectedInputController pInputController, float pDt)

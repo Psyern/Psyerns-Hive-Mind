@@ -46,6 +46,10 @@ class PHM_HiveManager
 	protected ref PGFilter m_PHM_LadderFilter;
 	protected ref array<vector> m_PHM_PathWaypoints;
 
+	//! Movement filter for the navmesh pursuit, built separately from the two
+	//! reachability filters above because it answers a different question.
+	protected ref PGFilter m_PHM_PursuitFilter;
+
 	//! Reused raycast buffers for door detection (no new in the tick loop).
 	protected ref array<ref RaycastRVResult> m_PHM_RayResults;
 	protected ref array<Object> m_PHM_RayExcluded;
@@ -324,13 +328,19 @@ class PHM_HiveManager
 		if (settings.LogBroadcasts)
 		{
 			string alertInfo = "none";
+			string pursuitInfo = "none";
 			ZombieBase firstMarked = m_PHM_Marked.Get(0);
 			if (firstMarked)
+			{
 				alertInfo = firstMarked.PHM_GetAlertDebug();
+				pursuitInfo = firstMarked.PHM_GetPursuitDebug();
+			}
 
 			string tick = "refresher: marked=" + m_PHM_Marked.Count().ToString();
 			tick = tick + " seen=" + seenSource;
+			tick = tick + " driving=" + CountDriving().ToString();
 			tick = tick + " alert[0]: " + alertInfo;
+			tick = tick + " pursuit[0]: " + pursuitInfo;
 			PHM_Logger.Debug(tick);
 		}
 
@@ -350,6 +360,30 @@ class PHM_HiveManager
 			return;
 
 		EmitNoisePing(m_PHM_LastSeenPos, settings);
+	}
+
+	//! How many marked infected are currently being driven along a navmesh route.
+	//! Telemetry only, and only evaluated while LogBroadcasts is on - this is the
+	//! number that separates "the pursuit never engaged" from "it engaged and the
+	//! zombies still did not arrive".
+	protected int CountDriving()
+	{
+		int count = m_PHM_Marked.Count();
+		int index;
+		int driving = 0;
+		ZombieBase zombie;
+
+		for (index = 0; index < count; index++)
+		{
+			zombie = m_PHM_Marked.Get(index);
+			if (!zombie)
+				continue;
+
+			if (zombie.PHM_IsDriving())
+				driving = driving + 1;
+		}
+
+		return driving;
 	}
 
 	//! First marked infected with an active player target wins. Bounded by the
@@ -688,7 +722,17 @@ class PHM_HiveManager
 	//! (checkIfLocked=true returns false for locked doors - exactly the policy here).
 	protected bool TryOpenDoor(ZombieBase zombie, vector zombiePos, vector targetPos, PHM_Settings settings)
 	{
-		vector direction = targetPos - zombiePos;
+		//! The zombie's OWN facing, not the bearing to the player. The ray is
+		//! 2.5 m long while a zombie qualifies from up to DoorMaxDistance (20 m)
+		//! away, so aiming it at the player meant the door had to sit by chance
+		//! on the straight line zombie->player - in testing that produced 27
+		//! attempts and 0 openings. Expansion aims along the AI's own direction
+		//! for the same reason (eAIBase.c:11545).
+		//!
+		//! While the pursuit drives this zombie its facing IS the direction of
+		//! the next navmesh waypoint, so the ray then looks exactly down the
+		//! route the zombie is about to walk.
+		vector direction = zombie.GetDirection();
 		direction[1] = 0.0;
 		if (direction.Length() < 0.1)
 			return false;
@@ -766,23 +810,120 @@ class PHM_HiveManager
 	//! Built once. Walk filter mirrors Expansion's ground movement set with
 	//! LADDER excluded; the ladder filter moves LADDER into the include set and
 	//! prices it attractively (SetCost LADDER 1.0, expansionpathfilters.c:133).
+	//!
+	//! UNREACHABLE is deliberately NOT in the include set here, unlike in
+	//! Expansion's set (expansionpathfilters.c:58). Expansion includes it because
+	//! its filters are used to MOVE an AI and a partial path towards an
+	//! unreachable goal is still useful to it. These two filters are used for the
+	//! opposite purpose - deciding whether a goal is reachable at all - and a
+	//! reachability test that accepts polygons the navmesh has flagged
+	//! unreachable answers "yes" almost always. That is exactly what happened in
+	//! testing: every single climb attempt refused with "walk path reaches
+	//! target", so the ladder branch was unreachable code in practice.
 	protected bool EnsureClimbFilters()
 	{
 		if (m_PHM_WalkFilter && m_PHM_LadderFilter)
 			return true;
 
-		int walkInclude = PGPolyFlags.WALK | PGPolyFlags.DOOR | PGPolyFlags.INSIDE | PGPolyFlags.DISABLED | PGPolyFlags.UNREACHABLE;
-		int walkExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL | PGPolyFlags.LADDER;
+		int walkInclude = PGPolyFlags.WALK | PGPolyFlags.DOOR | PGPolyFlags.INSIDE | PGPolyFlags.DISABLED;
+		int walkExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL | PGPolyFlags.LADDER | PGPolyFlags.UNREACHABLE;
 
 		m_PHM_WalkFilter = new PGFilter();
 		m_PHM_WalkFilter.SetFlags(walkInclude, walkExclude, PGPolyFlags.NONE);
 
 		int ladderInclude = walkInclude | PGPolyFlags.LADDER;
-		int ladderExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL;
+		int ladderExclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL | PGPolyFlags.UNREACHABLE;
 
 		m_PHM_LadderFilter = new PGFilter();
 		m_PHM_LadderFilter.SetFlags(ladderInclude, ladderExclude, PGPolyFlags.NONE);
 		m_PHM_LadderFilter.SetCost(PGAreaType.LADDER, 1.0);
+
+		return true;
+	}
+
+	//! Movement filter for the navmesh pursuit. Unlike the two reachability
+	//! filters above this one DOES include UNREACHABLE: here a partial path is
+	//! worth having, because walking most of the way towards the player is the
+	//! whole point. Ladders are in and priced low so a marked infected takes them
+	//! on its way, and closed doors (DISABLED) stay in so the route survives a
+	//! shut door that the door option may open later.
+	protected bool EnsurePursuitFilter()
+	{
+		if (m_PHM_PursuitFilter)
+			return true;
+
+		int include = PGPolyFlags.WALK | PGPolyFlags.DOOR | PGPolyFlags.INSIDE | PGPolyFlags.DISABLED | PGPolyFlags.UNREACHABLE | PGPolyFlags.LADDER;
+		int exclude = PGPolyFlags.CRAWL | PGPolyFlags.CROUCH | PGPolyFlags.SWIM | PGPolyFlags.SWIM_SEA | PGPolyFlags.SPECIAL;
+
+		m_PHM_PursuitFilter = new PGFilter();
+		m_PHM_PursuitFilter.SetFlags(include, exclude, PGPolyFlags.NONE);
+		m_PHM_PursuitFilter.SetCost(PGAreaType.LADDER, 1.0);
+		m_PHM_PursuitFilter.SetCost(PGAreaType.DOOR_CLOSED, 4.0);
+
+		return true;
+	}
+
+	//! Where the hive currently wants its marked infected to go, or false when
+	//! the pursuit window has run out. Same position the noise refresher pings,
+	//! so sound and movement never disagree.
+	bool PHM_GetPursuitTarget(float now, out vector destination)
+	{
+		if (now >= m_PHM_LastSeenUntil)
+			return false;
+
+		destination = m_PHM_LastSeenPos;
+		return true;
+	}
+
+	//! Navmesh route from a marked infected to the pursuit target. Both ends are
+	//! sampled onto the navmesh first - FindPath on a raw world position that
+	//! sits off-mesh simply fails, and a zombie standing half a metre inside a
+	//! wall is the normal case, not the exception.
+	//! waypoints is a plain parameter, not 'out': array is a reference type and
+	//! this function only ever clears and fills the instance it was handed, never
+	//! reassigns the handle. Same shape the climb path uses with its own member.
+	bool PHM_FindPursuitPath(vector from, vector to, array<vector> waypoints)
+	{
+		if (!g_Game)
+			return false;
+
+		if (!waypoints)
+			return false;
+
+		World world = g_Game.GetWorld();
+		if (!world)
+			return false;
+
+		AIWorld aiWorld = world.GetAIWorld();
+		if (!aiWorld)
+			return false;
+
+		if (!EnsurePursuitFilter())
+			return false;
+
+		vector fromSampled;
+		if (!aiWorld.SampleNavmeshPosition(from, PHM_Constants.PURSUIT_SAMPLE_RADIUS, m_PHM_PursuitFilter, fromSampled))
+			return false;
+
+		vector toSampled;
+		if (!aiWorld.SampleNavmeshPosition(to, PHM_Constants.PURSUIT_SAMPLE_RADIUS, m_PHM_PursuitFilter, toSampled))
+			return false;
+
+		waypoints.Clear();
+
+		if (!aiWorld.FindPath(fromSampled, toSampled, m_PHM_PursuitFilter, waypoints))
+			return false;
+
+		if (waypoints.Count() == 0)
+			return false;
+
+		//! Hard cap. FindPath returns the whole route and a 300 m path across a
+		//! town is hundreds of points; the tail is re-derived on the next repath
+		//! anyway, so keeping it would only cost memory on every marked infected.
+		while (waypoints.Count() > PHM_Constants.PURSUIT_PATH_MAX)
+		{
+			waypoints.Remove(waypoints.Count() - 1);
+		}
 
 		return true;
 	}
@@ -848,8 +989,13 @@ class PHM_HiveManager
 			else if (!zombie.PHM_IsHiveAlerted())
 			{
 				//! Leaving the marked set alive: release the experimental alert
-				//! override so the zombie falls back to untouched vanilla behaviour.
+				//! override AND the movement overrides so the zombie falls back to
+				//! untouched vanilla behaviour. Both are idempotent, and the
+				//! per-tick pursuit handler releases them too - this is the
+				//! belt-and-braces path for the case where CommandHandler stops
+				//! reaching this zombie at all.
 				zombie.PHM_ReleaseAlertOverride();
+				zombie.PHM_StopDriving();
 				m_PHM_Marked.Remove(index);
 			}
 

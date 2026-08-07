@@ -273,6 +273,22 @@ profiles/<your-profile>/Psyerns_Hive_Mind/
 
 > The override is applied on marking and re-applied on refresh, and released the moment a zombie leaves the marked set. Flipping the switch off mid-boost releases within `BoostDurationSeconds`.
 
+### Navmesh Pursuit
+
+Everything else the hive does is **perception**, and perception has a reach. `GetMaxVisionRangeModifier` only scales sight *range* and still needs an unobstructed line of sight; `AddNoiseTarget` is an engine broadcast whose reach comes from the noise config, not from `ShareRadius`. A zombie marked at 250 m behind a treeline was therefore told nothing it could act on &mdash; it was marked, and it stood there.
+
+Pursuit closes that gap. A marked infected with **no target of its own** gets a navmesh route to the hive's pursuit target (the same position the noise refresher pings) and is driven along it via `OverrideHeading` / `OverrideMovementSpeed`. The moment it acquires the player itself, the overrides are released and the vanilla chase takes over &mdash; the mod steers only while vanilla has nothing to steer with.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `EnablePursuit` | `false` | The switch. This is what makes `ShareRadius` mean something at range |
+| `PursuitSpeed` | `2.0` | Movement speed on the engine's infected scale: 1 walk, 2 run, 3 sprint. Clamp 1&ndash;3 |
+| `PursuitRepathSeconds` | `3.0` | Per-zombie repath interval, jittered so 60 marked infected never recompute in one frame. Clamp 0.5&ndash;30 |
+| `PursuitWaypointRadius` | `1.5` | How close counts as "waypoint reached" (m). Clamp 0.5&ndash;10 |
+| `PursuitMaxDistance` | `300.0` | Beyond this the mark stays perception-only and no route is computed. Clamp 10&ndash;2000 |
+
+> **Off by default, and honestly so.** `OverrideHeading` / `OverrideMovementSpeed` are declared on `DayZCreatureAIInputController`, which `DayZInfectedInputController` inherits &mdash; but vanilla only ever drives a creature this way for **animals** (`DayZAnimal.c:546-551`). This is proven by signature and by inheritance, not by precedent on infected. Turn it on with `LogBroadcasts` and read the `driving=` counter in the refresher line before trusting it on a live server.
+
 ### Ladder Climbing (hardcore option)
 
 Infected have **no ladder animation and no ladder command** &mdash; but the navmesh knows ladder connectivity (`PGPolyFlags.LADDER`; eAI soldiers use exactly this). So the hive simulates the climb: a marked zombie that can reach its target **only** via a ladder waits at the base for `ClimbDurationSeconds` ("it is climbing"), then is placed on the ladder path's top waypoint &mdash; a navmesh point by construction &mdash; and vanilla AI resumes the hunt up there. Zombies that can reach you via stairs or ramps keep walking; the climb only fires when the walk-only path fails while the ladder path reaches you.
@@ -288,9 +304,13 @@ Infected have **no ladder animation and no ladder command** &mdash; but the navm
 
 > Rooftops without navmesh stay safe: the target position must sample onto the navmesh, otherwise a placed zombie could not act up there and the climb is refused.
 
+> The two reachability filters exclude `PGPolyFlags.UNREACHABLE`, unlike Expansion's movement filters which include it (`expansionpathfilters.c:58`). Expansion includes it because a partial path towards an unreachable goal is still useful when you are *moving* an AI; these filters instead *decide whether a goal is reachable at all*, and accepting polygons the navmesh has flagged unreachable answers "yes" almost always. Before this was corrected, every climb attempt refused with `walk path reaches target` and the ladder branch was unreachable code in practice.
+
 ### Door Opening (hardcore option)
 
-Marked infected open **unlocked** doors that stand directly between them and their actively seen target. Detection is a chest-height ray towards the target (the exact idiom Expansion's eAI uses for its door handling); the zombie "fumbles at the handle" for `DoorOpenDelaySeconds`, then the server opens the door and vanilla pathing walks through. **Locked doors keep their meaning and are never opened** &mdash; locking yourself in still works, closing a door merely buys seconds.
+Marked infected open **unlocked** doors that stand directly in front of them. Detection is a chest-height ray along the zombie's **own facing** (the same idiom Expansion's eAI uses, `eAIBase.c:11545`); the zombie "fumbles at the handle" for `DoorOpenDelaySeconds`, then the server opens the door and vanilla pathing walks through. **Locked doors keep their meaning and are never opened** &mdash; locking yourself in still works, closing a door merely buys seconds.
+
+> The ray follows the zombie's facing, not the bearing to the player. Aiming it at the player meant the door had to sit by coincidence on the straight line zombie&rarr;player, while the ray is only 2.5 m long and a zombie qualifies from up to `DoorMaxDistance` away &mdash; in live testing that produced 27 attempts and 0 openings. With `EnablePursuit` on, the facing *is* the direction of the next navmesh waypoint, so the ray looks exactly down the route the zombie is about to walk.
 
 | Field | Default | Description |
 |-------|---------|-------------|
