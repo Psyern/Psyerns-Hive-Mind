@@ -85,6 +85,10 @@ class PHM_Probe
 	//! sawTarget is only meaningful next to this: see Possess().
 	protected bool m_PHM_TargetAtPossess;
 
+	//! True when THIS probe created the current subject. Such a subject is deleted
+	//! on release - it exists only for the measurement.
+	protected bool m_PHM_Spawned;
+
 	//! Allocated once. GetPlayers is an out-parameter fill (Game.c:947) and this
 	//! runs on a repeating timer, so a per-tick allocation would be pure garbage.
 	protected ref array<Man> m_PHM_Players;
@@ -104,6 +108,7 @@ class PHM_Probe
 		m_PHM_TurnCount = 0;
 		m_PHM_SawTarget = false;
 		m_PHM_TargetAtPossess = false;
+		m_PHM_Spawned = false;
 	}
 
 	static PHM_Probe GetInstance()
@@ -172,6 +177,20 @@ class PHM_Probe
 			return;
 
 		ZombieBase subject = FindSubject(settings);
+
+		//! Nothing near a player. With ProbeSelfSpawn the probe creates its own
+		//! test infected instead of idling, which is what makes the measurement
+		//! possible on a server with nobody connected: FindSubject needs a player
+		//! to measure distance from, and the Central Economy will not spawn
+		//! infected without player proximity either. Vanilla's own possession tool
+		//! does exactly this (PluginDayZInfectedDebug.c:365-366).
+		//!
+		//! A freshly spawned subject is also the CLEANEST possible sample for
+		//! unknown #1: it has existed for one tick, so tgtAtPossess is guaranteed
+		//! 0 and sawTarget cannot be contaminated by a carried-in target.
+		if (!subject && settings.ProbeSelfSpawn)
+			subject = SpawnSubject(settings);
+
 		if (!subject)
 		{
 			//! No candidate is not an error - nobody is near a player. Back off
@@ -181,6 +200,59 @@ class PHM_Probe
 		}
 
 		Possess(subject, settings, now);
+	}
+
+	//! Creates a throwaway test infected at the configured coordinate and returns
+	//! it, or null if the spawn failed.
+	//!
+	//! ECE_INITAI is what makes the difference between a prop and a working
+	//! infected - without it the entity has no AIAgent and SetKeepInIdle would be
+	//! called on null. ECE_PLACE_ON_SURFACE corrects the Y so the coordinate only
+	//! has to be roughly right. Same flag set vanilla uses at
+	//! PluginDayZInfectedDebug.c:365.
+	protected ZombieBase SpawnSubject(PHM_Settings settings)
+	{
+		if (!g_Game)
+			return null;
+
+		if (settings.ProbeSpawnType == "")
+			return null;
+
+		vector position = Vector(settings.ProbeSpawnX, settings.ProbeSpawnY, settings.ProbeSpawnZ);
+
+		int flags = ECE_PLACE_ON_SURFACE | ECE_INITAI;
+		Object created = g_Game.CreateObjectEx(settings.ProbeSpawnType, position, flags);
+		if (!created)
+		{
+			PHM_Logger.Warn("Probe self-spawn failed: CreateObjectEx returned null for '" + settings.ProbeSpawnType + "'. Check the class name.");
+			return null;
+		}
+
+		ZombieBase spawned = ZombieBase.Cast(created);
+		if (!spawned)
+		{
+			//! Not an infected - delete it again rather than leaving a stray object.
+			PHM_Logger.Warn("Probe self-spawn failed: '" + settings.ProbeSpawnType + "' is not a ZombieBase.");
+			g_Game.ObjectDelete(created);
+			return null;
+		}
+
+		//! Without an AI agent there is no brain to suspend and nothing to measure,
+		//! so this is a failed spawn rather than a usable subject.
+		if (!spawned.GetAIAgent())
+		{
+			PHM_Logger.Warn("Probe self-spawn failed: spawned infected has no AIAgent (ECE_INITAI did not take).");
+			g_Game.ObjectDelete(spawned);
+			return null;
+		}
+
+		m_PHM_Spawned = true;
+
+		string line = "Probe self-spawned " + settings.ProbeSpawnType;
+		line = line + " at " + spawned.GetPosition().ToString();
+		PHM_Logger.Notice(line);
+
+		return spawned;
 	}
 
 	//! Nearest alive infected to the nearest player, within ProbeSearchRadius.
@@ -685,6 +757,17 @@ class PHM_Probe
 			return;
 
 		agent.SetKeepInIdle(false);
+
+		//! LAST, and only for a subject this probe created itself. A self-spawned
+		//! test infected exists solely for the measurement, so leaving it standing
+		//! would litter the world with one zombie per run. Deleted after the brain
+		//! was handed back, never before: ObjectDelete on a possessed entity would
+		//! tear it down while the override is still pinned.
+		if (m_PHM_Spawned)
+		{
+			m_PHM_Spawned = false;
+			g_Game.ObjectDelete(zombie);
+		}
 	}
 
 	//! One line per run. Carries the totals plus the exact configuration that

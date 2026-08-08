@@ -64,6 +64,12 @@ class PHM_Settings
 	int ProbeTurnMode;
 	float ProbeTurnThresholdDeg;
 
+	bool ProbeSelfSpawn;
+	string ProbeSpawnType;
+	float ProbeSpawnX;
+	float ProbeSpawnY;
+	float ProbeSpawnZ;
+
 	float SettingsReloadSeconds;
 	bool LogBroadcasts;
 
@@ -201,6 +207,28 @@ class PHM_Settings
 		ProbeTurnMode = 0;
 		ProbeTurnThresholdDeg = 15.0;
 
+		//! Lets the probe create its own test infected when no player is near one.
+		//! Without this the measurement is impossible on an empty server: the
+		//! subject search needs a player to measure distance from, and the Central
+		//! Economy does not spawn infected without player proximity either.
+		//!
+		//! A freshly spawned subject is also the cleanest sample available for the
+		//! "does perception survive SetKeepInIdle" question - it has existed for a
+		//! single tick, so it cannot carry a target in.
+		//!
+		//! Off by default: it puts an infected into the world on a timer, which is
+		//! not something a live server should do behind the admin's back.
+		ProbeSelfSpawn = false;
+
+		//! Same class vanilla's own possession tool spawns
+		//! (PluginDayZInfectedDebug.c:365).
+		ProbeSpawnType = "ZmbF_JournalistNormal_Blue";
+
+		//! ECE_PLACE_ON_SURFACE corrects Y, so only X and Z have to be right.
+		ProbeSpawnX = 0.0;
+		ProbeSpawnY = 0.0;
+		ProbeSpawnZ = 0.0;
+
 		SettingsReloadSeconds = 60.0;
 		LogBroadcasts = false;
 
@@ -281,6 +309,21 @@ class PHM_Settings
 		ProbeTurnType = Math.Clamp(ProbeTurnType, PHM_Constants.PROBE_TURN_TYPE_MIN, PHM_Constants.PROBE_TURN_TYPE_MAX);
 		ProbeTurnMode = Math.Clamp(ProbeTurnMode, PHM_Constants.PROBE_TURN_MODE_MIN, PHM_Constants.PROBE_TURN_MODE_MAX);
 		ProbeTurnThresholdDeg = Math.Clamp(ProbeTurnThresholdDeg, PHM_Constants.PROBE_TURN_THRESHOLD_MIN, PHM_Constants.PROBE_TURN_THRESHOLD_MAX);
+
+		//! An empty class name would make CreateObjectEx fail on every tick. Fall
+		//! back rather than let the switch look enabled while nothing can spawn.
+		if (ProbeSpawnType == "")
+			ProbeSpawnType = "ZmbF_JournalistNormal_Blue";
+
+		//! A self-spawn at the world origin is always a mistake - 0/0 is the map
+		//! corner - so refuse to arm the feature instead of dropping an infected
+		//! into the sea every cooldown.
+		bool originUnset = false;
+		if (ProbeSpawnX == 0.0 && ProbeSpawnZ == 0.0)
+			originUnset = true;
+
+		if (ProbeSelfSpawn && originUnset)
+			ProbeSelfSpawn = false;
 
 		//! Every negative bearing collapses onto the single sentinel BEFORE the
 		//! clamp, so -0.3 and -999 both mean "keep the captured yaw" instead of

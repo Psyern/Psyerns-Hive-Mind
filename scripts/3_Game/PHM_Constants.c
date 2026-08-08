@@ -17,7 +17,8 @@ class PHM_Constants
 	//! v6: EnableMotorProbe, ProbeSearchRadius, ProbeDurationSeconds,
 	//! ProbeCooldownSeconds, ProbeSpeed, ProbeBearing, ProbeTurnType,
 	//! ProbeTurnMode, ProbeTurnThresholdDeg
-	static const int SETTINGS_VERSION = 6;
+	//! v7: ProbeSelfSpawn, ProbeSpawnType, ProbeSpawnX, ProbeSpawnY, ProbeSpawnZ
+	static const int SETTINGS_VERSION = 7;
 
 	//! Clamp bounds for Validate(). No value read from JSON may reach the
 	//! selection loop unclamped.
